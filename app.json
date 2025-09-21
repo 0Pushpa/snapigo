@@ -8,21 +8,7 @@
     "scheme": "snapigo",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "edgeToEdgeEnabled": true
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
+
     "plugins": [
       "expo-router",
       [
@@ -33,10 +19,55 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-camera",
+      "expo-location",
+      "expo-task-manager",
+      "expo-notifications"
     ],
+
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourname.snapigo",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow Snapigo to use your camera to scan coupons.",
+        "NSLocationWhenInUseUsageDescription": "Allow Snapigo to detect nearby stores while you use the app.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow Snapigo to alert you near stores even when the app is closed.",
+        "UIBackgroundModes": ["location", "fetch", "remote-notification"]
+      }
+    },
+
+    "android": {
+      "package": "com.yourname.snapigo",
+      "edgeToEdgeEnabled": true,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "RECEIVE_BOOT_COMPLETED",
+        "WAKE_LOCK"
+      ]
+    },
+
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+
     "experiments": {
       "typedRoutes": true
+    },
+
+    "extra": {
+      "eas": {
+        "projectId": "replace-this-with-your-eas-project-id"
+      }
     }
   }
 }
