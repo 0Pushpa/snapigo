@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1130"
+   LastUpgradeVersion = "1620"
    version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "snapigo.app"
-               BlueprintName = "snapigo"
-               ReferencedContainer = "container:snapigo.xcodeproj">
+               BuildableName = "Snapigo.app"
+               BlueprintName = "Snapigo"
+               ReferencedContainer = "container:Snapigo.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "snapigoTests.xctest"
-               BlueprintName = "snapigoTests"
-               ReferencedContainer = "container:snapigo.xcodeproj">
+               BuildableName = "SnapigoTests.xctest"
+               BlueprintName = "SnapigoTests"
+               ReferencedContainer = "container:Snapigo.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "snapigo.app"
-            BlueprintName = "snapigo"
-            ReferencedContainer = "container:snapigo.xcodeproj">
+            BuildableName = "Snapigo.app"
+            BlueprintName = "Snapigo"
+            ReferencedContainer = "container:Snapigo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "snapigo.app"
-            BlueprintName = "snapigo"
-            ReferencedContainer = "container:snapigo.xcodeproj">
+            BuildableName = "Snapigo.app"
+            BlueprintName = "Snapigo"
+            ReferencedContainer = "container:Snapigo.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
