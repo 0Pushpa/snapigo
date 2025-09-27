@@ -7,9 +7,7 @@ podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties
 ENV['RCT_NEW_ARCH_ENABLED'] = '0' if podfile_properties['newArchEnabled'] == 'false'
 ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] = podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
 
-# iOS 16.0 minimum to play nice with MLKit and modern pods
 platform :ios, podfile_properties['ios.deploymentTarget'] || '16.0'
-
 install! 'cocoapods', :deterministic_uuids => false
 
 prepare_react_native_project!
@@ -20,52 +18,49 @@ target 'Snapigo' do
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
     config_command = ['node', '-e', "process.argv=['', '', 'config'];require('@react-native-community/cli').run()"]
   else
-    config_command = [
-      'npx', 'expo-modules-autolinking', 'react-native-config',
-      '--json', '--platform', 'ios'
-    ]
+    config_command = ['npx','expo-modules-autolinking','react-native-config','--json','--platform','ios']
   end
 
   config = use_native_modules!(config_command)
 
-  # ---- Option B: force static frameworks so Swift can import modules like `Expo`
+  # Static frameworks are safest with MLKit + RN
   use_frameworks! :linkage => :static
-  # (comment out the conditional variants so they don't override)
-  # use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
-  # use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
 
   use_react_native!(
     :path => config[:reactNativePath],
-    :hermes_enabled => podfile_properties['expo.jsEngine'].nil? || podfile_properties['expo.jsEngine'] == 'hermes',
+    :hermes_enabled => (podfile_properties['expo.jsEngine'].nil? || podfile_properties['expo.jsEngine'] == 'hermes'),
     :app_path => "#{Pod::Config.instance.installation_root}/..",
-    :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
+    :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false'
   )
 
-  # ===================== POST INSTALL FIXES =====================
+  # --- Force modern MLKit XCFrameworks (includes simulator slices)
+  $MLKIT_VER = '~> 8.0'
+  pod 'GoogleMLKit/TextRecognition', $MLKIT_VER
+  # Add only what you use, e.g.:
+  # pod 'GoogleMLKit/BarcodeScanning', $MLKIT_VER
+  # pod 'GoogleMLKit/FaceDetection',   $MLKIT_VER
+  # pod 'GoogleMLKit/ObjectDetection', $MLKIT_VER
+
   post_install do |installer|
     react_native_post_install(
       installer,
       config[:reactNativePath],
       :mac_catalyst_enabled => false,
-      :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true',
+      :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true'
     )
 
-    # 1) Run all CocoaPods script phases with bash (fixes ARCHS[@] unbound variable)
+    # 1) Always run build phases with bash
     installer.pods_project.targets.each do |t|
-      t.shell_script_build_phases.each do |phase|
-        phase.shell_path = '/bin/bash'
-      end
+      t.shell_script_build_phases.each { |p| p.shell_path = '/bin/bash' }
     end
 
-    # 2) Allow arm64 on the iOS Simulator & remove app overrides
+    # 2) Architectures: only Apple-Silicon for sim; standard archs everywhere
     projects = [installer.pods_project] + installer.aggregate_targets.map(&:user_project).uniq
-
     projects.each do |proj|
       proj.targets.each do |t|
         t.build_configurations.each do |cfg|
-          cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
           cfg.build_settings['ARCHS'] = '$(ARCHS_STANDARD)'
-
+          cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'x86_64'
           min_target = '13.0'
           cur = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
           if cur.nil? || cur.to_f < min_target.to_f
@@ -74,11 +69,11 @@ target 'Snapigo' do
         end
       end
 
-      # Fix the app-target override warning by inheriting from Pods
+      # Remove app-target overrides; inherit from Pods
       unless proj == installer.pods_project
-        app_target = proj.targets.find { |t| t.name == 'Snapigo' }
-        if app_target
-          app_target.build_configurations.each do |cfg|
+        app = proj.targets.find { |t| t.name == 'Snapigo' }
+        if app
+          app.build_configurations.each do |cfg|
             cfg.build_settings.delete('EXCLUDED_ARCHS[sdk=iphonesimulator*]')
             cfg.build_settings.delete('EXCLUDED_ARCHS')
             cfg.build_settings['EXCLUDED_ARCHS'] = '$(inherited)'
@@ -89,25 +84,28 @@ target 'Snapigo' do
       proj.save
     end
 
-    # 3) Normalize DEFINES_MODULE to silence merge warnings
-    problematic = %w[expo-dev-menu Main ReactNativeCompatibles SafeAreaView Vendored]
-    installer.pods_project.targets.each do |t|
-      next unless problematic.include?(t.name)
-      t.build_configurations.each do |cfg|
-        cfg.build_settings['DEFINES_MODULE'] = 'YES'
+    # 3) Silence DEFINES_MODULE merge warnings (cosmetic)
+    %w[expo-dev-menu Main ReactNativeCompatibles SafeAreaView Vendored].each do |name|
+      if (t = installer.pods_project.targets.find { |x| x.name == name })
+        t.build_configurations.each { |cfg| cfg.build_settings['DEFINES_MODULE'] = 'YES' }
       end
     end
     installer.pods_project.save
 
-    # 4) Keep Expo resource bundles from code signing (noise reduction only)
-    installer.target_installation_results.pod_target_installation_results
-      .each do |_pod_name, target_installation_result|
-        target_installation_result.resource_bundle_targets.each do |rb|
-          rb.build_configurations.each do |cfg|
-            cfg.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-          end
-        end
+    # 4) Don’t code-sign resource bundles from pods
+    installer.target_installation_results.pod_target_installation_results.each_value do |tres|
+      tres.resource_bundle_targets.each do |rb|
+        rb.build_configurations.each { |cfg| cfg.build_settings['CODE_SIGNING_ALLOWED'] = 'NO' }
       end
+    end
+
+    # 5) Safety net: if legacy, device-only MLImage target appears, disable it on sim
+    legacy_mlimage = installer.pods_project.targets.find { |t| t.name == 'MLImage' }
+    if legacy_mlimage
+      legacy_mlimage.build_configurations.each do |cfg|
+        cfg.build_settings['SKIP_INSTALL[sdk=iphonesimulator*]'] = 'YES'
+        cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = 'arm64 x86_64'
+      end
+    end
   end
-  # ==============================================================
 end
