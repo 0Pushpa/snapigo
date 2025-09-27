@@ -28,8 +28,11 @@ target 'Snapigo' do
 
   config = use_native_modules!(config_command)
 
-  use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
-  use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
+  # ---- Option B: force static frameworks so Swift can import modules like `Expo`
+  use_frameworks! :linkage => :static
+  # (comment out the conditional variants so they don't override)
+  # use_frameworks! :linkage => podfile_properties['ios.useFrameworks'].to_sym if podfile_properties['ios.useFrameworks']
+  # use_frameworks! :linkage => ENV['USE_FRAMEWORKS'].to_sym if ENV['USE_FRAMEWORKS']
 
   use_react_native!(
     :path => config[:reactNativePath],
@@ -38,12 +41,7 @@ target 'Snapigo' do
     :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
   )
 
-  # --- ML Kit pods (xcframeworks with simulator arm64 support). Add the ones you use:
-  # pod 'GoogleMLKit/TextRecognition', '~> 3.2'
-  # pod 'GoogleMLKit/BarcodeScanning', '~> 3.2'
-  # pod 'GoogleMLKit/FaceDetection',   '~> 3.2'
-  # pod 'GoogleMLKit/ObjectDetection', '~> 3.2'
-
+  # ===================== POST INSTALL FIXES =====================
   post_install do |installer|
     react_native_post_install(
       installer,
@@ -52,23 +50,64 @@ target 'Snapigo' do
       :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true',
     )
 
-    # Unify DEFINES_MODULE to silence xcconfig merge warnings (harmless)
-    problematic = %w[expo-dev-menu Main ReactNativeCompatibles SafeAreaView Vendored]
+    # 1) Run all CocoaPods script phases with bash (fixes ARCHS[@] unbound variable)
     installer.pods_project.targets.each do |t|
-      next unless problematic.include?(t.name)
-      t.build_configurations.each do |c|
-        c.build_settings['DEFINES_MODULE'] = 'YES'
+      t.shell_script_build_phases.each do |phase|
+        phase.shell_path = '/bin/bash'
       end
     end
 
-    # Keep Expo’s resource bundle code signing disabled
+    # 2) Allow arm64 on the iOS Simulator & remove app overrides
+    projects = [installer.pods_project] + installer.aggregate_targets.map(&:user_project).uniq
+
+    projects.each do |proj|
+      proj.targets.each do |t|
+        t.build_configurations.each do |cfg|
+          cfg.build_settings['EXCLUDED_ARCHS[sdk=iphonesimulator*]'] = ''
+          cfg.build_settings['ARCHS'] = '$(ARCHS_STANDARD)'
+
+          min_target = '13.0'
+          cur = cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET']
+          if cur.nil? || cur.to_f < min_target.to_f
+            cfg.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = min_target
+          end
+        end
+      end
+
+      # Fix the app-target override warning by inheriting from Pods
+      unless proj == installer.pods_project
+        app_target = proj.targets.find { |t| t.name == 'Snapigo' }
+        if app_target
+          app_target.build_configurations.each do |cfg|
+            cfg.build_settings.delete('EXCLUDED_ARCHS[sdk=iphonesimulator*]')
+            cfg.build_settings.delete('EXCLUDED_ARCHS')
+            cfg.build_settings['EXCLUDED_ARCHS'] = '$(inherited)'
+          end
+        end
+      end
+
+      proj.save
+    end
+
+    # 3) Normalize DEFINES_MODULE to silence merge warnings
+    problematic = %w[expo-dev-menu Main ReactNativeCompatibles SafeAreaView Vendored]
+    installer.pods_project.targets.each do |t|
+      next unless problematic.include?(t.name)
+      t.build_configurations.each do |cfg|
+        cfg.build_settings['DEFINES_MODULE'] = 'YES'
+      end
+    end
+    installer.pods_project.save
+
+    # 4) Keep Expo resource bundles from code signing (noise reduction only)
     installer.target_installation_results.pod_target_installation_results
       .each do |_pod_name, target_installation_result|
-        target_installation_result.resource_bundle_targets.each do |resource_bundle_target|
-          resource_bundle_target.build_configurations.each do |cfg|
+        target_installation_result.resource_bundle_targets.each do |rb|
+          rb.build_configurations.each do |cfg|
             cfg.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
           end
         end
       end
   end
+  # ==============================================================
 end

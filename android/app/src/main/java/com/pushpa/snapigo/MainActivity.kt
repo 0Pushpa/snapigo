@@ -1,4 +1,4 @@
-package com.yourname.snapigo
+package com.pushpa.snapigo
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
