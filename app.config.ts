@@ -4,6 +4,7 @@ export default {
   expo: {
     name: 'Snapigo',
     slug: 'snapigo',
+    plugins: ["./plugins/with-apple-vision-ocr"],
     ios: {
       bundleIdentifier: "com.pushpa.snapigo",
       deploymentTarget: "16.0",   // bump from 15.5 → 16.0 (or 17.0 if you prefer)
