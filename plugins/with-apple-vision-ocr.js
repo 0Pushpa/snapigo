@@ -1,10 +1,5 @@
-// plugins/with-apple-vision-ocr.js
 // Apple Vision OCR native bridge (Objective-C++) for Expo/React Native.
-// - Writes OcrModule.h / OcrModule.mm into ios/NativeModules
-// - Adds them to the Xcode project
-// - Disables Xcode 15 "User Script Sandboxing" so Expo/RN scripts can read Pods files
-// - Ensures Pods public headers are visible
-// No Swift. No bridging header. No Xcode clicking.
+// Safe version: does NOT modify HEADER_SEARCH_PATHS or any Swift bridging settings.
 
 const { withDangerousMod, withXcodeProject } = require('@expo/config-plugins');
 const fs = require('fs');
@@ -58,57 +53,48 @@ RCT_REMAP_METHOD(recognize,
 `;
 
 module.exports = function withAppleVisionOCR(config) {
-  // 1) Write native sources into ios/NativeModules (and remove any old Swift bridge if present)
+  // 1) Write Obj-C++ sources into ios/NativeModules
   config = withDangerousMod(config, ['ios', (c) => {
-    const iosRoot = c.modRequest.platformProjectRoot; // absolute path to ios/
+    const iosRoot = c.modRequest.platformProjectRoot;
     const modDir = path.join(iosRoot, 'NativeModules');
     if (!fs.existsSync(modDir)) fs.mkdirSync(modDir);
-
-    // Write Obj-C header/impl
     fs.writeFileSync(path.join(modDir, 'OcrModule.h'), HEADER_H);
     fs.writeFileSync(path.join(modDir, 'OcrModule.mm'), SOURCE_MM);
 
-    // Clean up prior Swift attempt if it exists (not required, but avoids confusion)
-    const swiftPath = path.join(modDir, 'OcrModule.swift');
-    try { if (fs.existsSync(swiftPath)) fs.rmSync(swiftPath); } catch {}
+    // Remove any leftover Swift attempt (optional)
+    try { fs.rmSync(path.join(modDir, 'OcrModule.swift')); } catch {}
+    try { fs.rmSync(path.join(iosRoot, 'Snapigo-Bridging-Header.h')); } catch {}
 
     return c;
   }]);
 
-// 2) Add files + disable Xcode 15 sandbox; remove any Swift bridge settings
-config = withXcodeProject(config, (c) => {
-  const project = c.modResults;
-  const groupName = 'NativeModules';
-  const group = project.pbxGroupByName(groupName) || project.addPbxGroup([], groupName, groupName);
+  // 2) Add files to Xcode project + only flip the script sandbox (leave header paths alone)
+  config = withXcodeProject(config, (c) => {
+    const project = c.modResults;
 
-  const add = (rel) => {
-    if (!project.hasFile(rel)) {
-      project.addSourceFile(rel, { target: project.getFirstTarget().uuid }, group.uuid);
-    }
-  };
-  add('NativeModules/OcrModule.h');
-  add('NativeModules/OcrModule.mm'); // Obj-C++
+    const groupName = 'NativeModules';
+    const group = project.pbxGroupByName(groupName) || project.addPbxGroup([], groupName, groupName);
 
-  // Flip off user script sandboxing and ensure pods headers path
-  const cfgs = project.pbxXCBuildConfigurationSection();
-  Object.keys(cfgs).forEach((k) => {
-    const bs = cfgs[k] && cfgs[k].buildSettings;
-    if (!bs) return;
-    bs.ENABLE_USER_SCRIPT_SANDBOXING = 'NO';
+    const add = (rel) => {
+      if (!project.hasFile(rel)) {
+        project.addSourceFile(rel, { target: project.getFirstTarget().uuid }, group.uuid);
+      }
+    };
+    add('NativeModules/OcrModule.h');
+    add('NativeModules/OcrModule.mm'); // Obj-C++
 
-    const PODS_HDR = '"$(PODS_ROOT)/Headers/Public/**"';
-    if (!bs.HEADER_SEARCH_PATHS) bs.HEADER_SEARCH_PATHS = PODS_HDR;
-    else if (Array.isArray(bs.HEADER_SEARCH_PATHS)) {
-      if (!bs.HEADER_SEARCH_PATHS.includes(PODS_HDR)) bs.HEADER_SEARCH_PATHS.push(PODS_HDR);
-    } else bs.HEADER_SEARCH_PATHS = [bs.HEADER_SEARCH_PATHS, PODS_HDR];
+    // Disable Xcode 15+ User Script Sandboxing (Expo/RN scripts need to read Pods files)
+    const cfgs = project.pbxXCBuildConfigurationSection();
+    Object.keys(cfgs).forEach((k) => {
+      const bs = cfgs[k] && cfgs[k].buildSettings;
+      if (!bs) return;
+      bs.ENABLE_USER_SCRIPT_SANDBOXING = 'NO';
 
-    // 🔥 Remove Swift bridging header usage entirely
-    delete bs.SWIFT_OBJC_BRIDGING_HEADER;
-    delete bs.SWIFT_PRECOMPILE_BRIDGING_HEADER;
+      // Do NOT touch HEADER_SEARCH_PATHS or any SWIFT_* keys here.
+    });
+
+    return c;
   });
-
-  return c;
-});
 
   return config;
 };
