@@ -75,47 +75,40 @@ module.exports = function withAppleVisionOCR(config) {
     return c;
   }]);
 
-  // 2) Add files to the Xcode project + set safe build settings
-  config = withXcodeProject(config, (c) => {
-    const project = c.modResults;
+// 2) Add files + disable Xcode 15 sandbox; remove any Swift bridge settings
+config = withXcodeProject(config, (c) => {
+  const project = c.modResults;
+  const groupName = 'NativeModules';
+  const group = project.pbxGroupByName(groupName) || project.addPbxGroup([], groupName, groupName);
 
-    // Ensure a logical group exists
-    const groupName = 'NativeModules';
-    const group = project.pbxGroupByName(groupName) || project.addPbxGroup([], groupName, groupName);
+  const add = (rel) => {
+    if (!project.hasFile(rel)) {
+      project.addSourceFile(rel, { target: project.getFirstTarget().uuid }, group.uuid);
+    }
+  };
+  add('NativeModules/OcrModule.h');
+  add('NativeModules/OcrModule.mm'); // Obj-C++
 
-    // Add files to the target
-    const add = (relPath) => {
-      if (!project.hasFile(relPath)) {
-        project.addSourceFile(relPath, { target: project.getFirstTarget().uuid }, group.uuid);
-      }
-    };
-    add('NativeModules/OcrModule.h');
-    add('NativeModules/OcrModule.mm'); // Objective-C++
+  // Flip off user script sandboxing and ensure pods headers path
+  const cfgs = project.pbxXCBuildConfigurationSection();
+  Object.keys(cfgs).forEach((k) => {
+    const bs = cfgs[k] && cfgs[k].buildSettings;
+    if (!bs) return;
+    bs.ENABLE_USER_SCRIPT_SANDBOXING = 'NO';
 
-    // Disable Xcode 15 user script sandboxing (lets Expo/RN scripts read Pods files)
-    const cfgs = project.pbxXCBuildConfigurationSection();
-    Object.keys(cfgs).forEach((k) => {
-      const bs = cfgs[k] && cfgs[k].buildSettings;
-      if (!bs) return;
+    const PODS_HDR = '"$(PODS_ROOT)/Headers/Public/**"';
+    if (!bs.HEADER_SEARCH_PATHS) bs.HEADER_SEARCH_PATHS = PODS_HDR;
+    else if (Array.isArray(bs.HEADER_SEARCH_PATHS)) {
+      if (!bs.HEADER_SEARCH_PATHS.includes(PODS_HDR)) bs.HEADER_SEARCH_PATHS.push(PODS_HDR);
+    } else bs.HEADER_SEARCH_PATHS = [bs.HEADER_SEARCH_PATHS, PODS_HDR];
 
-      bs.ENABLE_USER_SCRIPT_SANDBOXING = 'NO';
-
-      // Ensure Pods public headers are visible (some RN setups need this)
-      const PODS_HDR = '"$(PODS_ROOT)/Headers/Public/**"';
-      if (!bs.HEADER_SEARCH_PATHS) {
-        bs.HEADER_SEARCH_PATHS = PODS_HDR;
-      } else if (Array.isArray(bs.HEADER_SEARCH_PATHS)) {
-        if (!bs.HEADER_SEARCH_PATHS.includes(PODS_HDR)) bs.HEADER_SEARCH_PATHS.push(PODS_HDR);
-      } else {
-        bs.HEADER_SEARCH_PATHS = [bs.HEADER_SEARCH_PATHS, PODS_HDR];
-      }
-
-      // IMPORTANT: Do NOT touch any SWIFT_* bridging header keys here.
-      // We keep this plugin Swift-free to avoid PCH/pcm cache issues.
-    });
-
-    return c;
+    // 🔥 Remove Swift bridging header usage entirely
+    delete bs.SWIFT_OBJC_BRIDGING_HEADER;
+    delete bs.SWIFT_PRECOMPILE_BRIDGING_HEADER;
   });
+
+  return c;
+});
 
   return config;
 };

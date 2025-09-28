@@ -19,7 +19,7 @@ RCT_REMAP_METHOD(recognize,
     for (VNRecognizedTextObservation *obs in (NSArray<VNRecognizedTextObservation *> *)r.results) {
       VNRecognizedText *best = [[obs topCandidates:1] firstObject];
       if (!best) continue;
-      CGRect b = obs.boundingBox;
+      CGRect b = obs.boundingBox; // normalized 0..1
       [out addObject:@{
         @"text": best.string ?: @"",
         @"bbox": @{@"x": @(b.origin.x), @"y": @(b.origin.y), @"w": @(b.size.width), @"h": @(b.size.height)}
