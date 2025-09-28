@@ -5,6 +5,7 @@ import Vision
 @objc(OcrModule)
 class OcrModule: NSObject {
   @objc static func requiresMainQueueSetup() -> Bool { false }
+
   @objc(recognize:resolver:rejecter:)
   func recognize(_ imagePath: String,
                  resolver resolve: @escaping RCTPromiseResolveBlock,
