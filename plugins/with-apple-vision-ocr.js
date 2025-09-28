@@ -1,5 +1,7 @@
-const { withDangerousMod, withXcodeProject, IOSConfig } = require('expo/config-plugins');
-const fs = require('fs'); const path = require('path');
+// Minimal, robust config plugin to add an Apple Vision OCR native module
+const { withDangerousMod, withXcodeProject } = require('@expo/config-plugins');
+const fs = require('fs');
+const path = require('path');
 
 const swiftSrc = `
 import Foundation
@@ -8,6 +10,7 @@ import Vision
 @objc(OcrModule)
 class OcrModule: NSObject {
   @objc static func requiresMainQueueSetup() -> Bool { false }
+
   @objc(recognize:resolver:rejecter:)
   func recognize(_ imagePath: String,
                  resolver resolve: @escaping RCTPromiseResolveBlock,
@@ -42,31 +45,41 @@ RCT_EXTERN_METHOD(recognize:(NSString *)imagePath
 `;
 
 module.exports = function withAppleVisionOCR(config) {
-  // 1) Write native files
-  config = withDangerousMod(config, ['ios', c => {
-    const iosRoot = c.modRequest.platformProjectRoot;
+  // 1) Write native sources + bridging header into ios/
+  config = withDangerousMod(config, ['ios', (c) => {
+    const iosRoot = c.modRequest.platformProjectRoot; // absolute path to ios/
     const modDir = path.join(iosRoot, 'NativeModules');
     if (!fs.existsSync(modDir)) fs.mkdirSync(modDir);
     fs.writeFileSync(path.join(modDir, 'OcrModule.swift'), swiftSrc);
     fs.writeFileSync(path.join(modDir, 'OcrModule.m'), objcSrc);
+
+    // Ensure a bridging header exists at the project root (ios/)
     const bridging = path.join(iosRoot, 'Snapigo-Bridging-Header.h');
-    if (!fs.existsSync(bridging)) fs.writeFileSync(bridging, '#import <React/RCTBridgeModule.h>\n');
+    if (!fs.existsSync(bridging)) {
+      fs.writeFileSync(bridging, '#import <React/RCTBridgeModule.h>\n');
+    }
     return c;
   }]);
 
-  // 2) Link into Xcode project + set bridging header
-  config = withXcodeProject(config, c => {
+  // 2) Add the files to the Xcode project and set build settings
+  config = withXcodeProject(config, (c) => {
     const project = c.modResults;
-    const projectName = IOSConfig.XcodeUtils.getProjectName(project);
-    const groupPath = path.join(projectName, 'NativeModules');
-    const group = project.pbxGroupByName('NativeModules') || project.addPbxGroup([], 'NativeModules', 'NativeModules', groupPath);
+    const groupName = 'NativeModules';
+    const group = project.pbxGroupByName(groupName) || project.addPbxGroup([], groupName, groupName);
 
-    const add = rel => { if (!project.hasFile(rel)) project.addSourceFile(rel, { target: project.getFirstTarget().uuid }, group.uuid); };
+    const add = (rel) => {
+      if (!project.hasFile(rel)) {
+        project.addSourceFile(rel, { target: project.getFirstTarget().uuid }, group.uuid);
+      }
+    };
+
     add('NativeModules/OcrModule.swift');
     add('NativeModules/OcrModule.m');
 
-    project.addBuildProperty('SWIFT_OBJC_BRIDGING_HEADER', '"$(PROJECT_DIR)/ios/Snapigo-Bridging-Header.h"');
+    // Point the Swift <-> ObjC bridging header to the file we created in ios/
+    project.addBuildProperty('SWIFT_OBJC_BRIDGING_HEADER', '"$(PROJECT_DIR)/Snapigo-Bridging-Header.h"');
     project.addBuildProperty('SWIFT_VERSION', '5.0');
+
     return c;
   });
 
