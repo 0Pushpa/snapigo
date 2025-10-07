@@ -8,32 +8,32 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		23FDFD6227724587A8BA4515 /* OcrModule.h in Sources */ = {isa = PBXBuildFile; fileRef = 1AB3230C30E64DAE8F5C87C5 /* OcrModule.h */; };
+		349102E9E6DB4CB7B0C76F8B /* OcrModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = E97DDF34987B4FB5BD2EBC42 /* OcrModule.mm */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		6A99CDB705DCFB15DA6255FA /* libPods-Snapigo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 46E6237C933623C1AE5A837F /* libPods-Snapigo.a */; };
-		7B1D3415BAEF49DDAA0364DA /* OcrModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = 0278324C61F84E7A88303126 /* OcrModule.mm */; };
+		4CACD326FC614AB781E0854B /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 978169BCF835A8B55126BCA1 /* ExpoModulesProvider.swift */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
-		BFEE60DA5E764E67A5D53747 /* OcrModule.h in Sources */ = {isa = PBXBuildFile; fileRef = E985BA620CAA4C40B4FAF276 /* OcrModule.h */; };
-		CF729F1AF7F0BAD49DF809E2 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE087BF67BE79F8FDD22BED5 /* ExpoModulesProvider.swift */; };
-		E651BDD42AFAB599BD205E2B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = F74F3740D460B327AE1227DA /* PrivacyInfo.xcprivacy */; };
+		E905C3DFF7D0C3D4A8BEC07E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AAD3F5FF65C16F881E564AEE /* PrivacyInfo.xcprivacy */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		F74F8E11BD90CF3C7D3F47D0 /* libPods-Snapigo.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4ED01B479B3B57CCC8CAD66B /* libPods-Snapigo.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		0278324C61F84E7A88303126 /* OcrModule.mm */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = OcrModule.mm; path = NativeModules/OcrModule.mm; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* Snapigo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Snapigo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = Snapigo/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = Snapigo/Info.plist; sourceTree = "<group>"; };
-		46E6237C933623C1AE5A837F /* libPods-Snapigo.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Snapigo.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		1AB3230C30E64DAE8F5C87C5 /* OcrModule.h */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.c.h; name = OcrModule.h; path = NativeModules/OcrModule.h; sourceTree = "<group>"; };
+		4ED01B479B3B57CCC8CAD66B /* libPods-Snapigo.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Snapigo.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		8F2673CF2EC6332588806C97 /* Pods-Snapigo.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Snapigo.release.xcconfig"; path = "Target Support Files/Pods-Snapigo/Pods-Snapigo.release.xcconfig"; sourceTree = "<group>"; };
+		978169BCF835A8B55126BCA1 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Snapigo/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		A5BB0BD0087F796121A3B5F5 /* Pods-Snapigo.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Snapigo.debug.xcconfig"; path = "Target Support Files/Pods-Snapigo/Pods-Snapigo.debug.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Snapigo/SplashScreen.storyboard; sourceTree = "<group>"; };
-		AE087BF67BE79F8FDD22BED5 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-Snapigo/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
-		B4EFC50CDF5FC6303C9E0F07 /* Pods-Snapigo.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Snapigo.release.xcconfig"; path = "Target Support Files/Pods-Snapigo/Pods-Snapigo.release.xcconfig"; sourceTree = "<group>"; };
+		AAD3F5FF65C16F881E564AEE /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Snapigo/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
-		DF9CFF403B10FC159FDA158C /* Pods-Snapigo.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Snapigo.debug.xcconfig"; path = "Target Support Files/Pods-Snapigo/Pods-Snapigo.debug.xcconfig"; sourceTree = "<group>"; };
-		E985BA620CAA4C40B4FAF276 /* OcrModule.h */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = sourcecode.c.h; name = OcrModule.h; path = NativeModules/OcrModule.h; sourceTree = "<group>"; };
+		E97DDF34987B4FB5BD2EBC42 /* OcrModule.mm */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = undefined; includeInIndex = 0; lastKnownFileType = unknown; name = OcrModule.mm; path = NativeModules/OcrModule.mm; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Snapigo/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Snapigo-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Snapigo-Bridging-Header.h"; path = "Snapigo/Snapigo-Bridging-Header.h"; sourceTree = "<group>"; };
-		F74F3740D460B327AE1227DA /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Snapigo/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -41,7 +41,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6A99CDB705DCFB15DA6255FA /* libPods-Snapigo.a in Frameworks */,
+				F74F8E11BD90CF3C7D3F47D0 /* libPods-Snapigo.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -57,24 +57,42 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				F74F3740D460B327AE1227DA /* PrivacyInfo.xcprivacy */,
+				AAD3F5FF65C16F881E564AEE /* PrivacyInfo.xcprivacy */,
 			);
 			name = Snapigo;
+			sourceTree = "<group>";
+		};
+		2207A2611745C35F34526830 /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				7F3F0445C53644AFC53B9CD8 /* Snapigo */,
+			);
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				46E6237C933623C1AE5A837F /* libPods-Snapigo.a */,
+				4ED01B479B3B57CCC8CAD66B /* libPods-Snapigo.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		830281CF31A448D22297BBA8 /* Snapigo */ = {
+		33FC508EF6309F89ACBA612D /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				AE087BF67BE79F8FDD22BED5 /* ExpoModulesProvider.swift */,
+				A5BB0BD0087F796121A3B5F5 /* Pods-Snapigo.debug.xcconfig */,
+				8F2673CF2EC6332588806C97 /* Pods-Snapigo.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		7F3F0445C53644AFC53B9CD8 /* Snapigo */ = {
+			isa = PBXGroup;
+			children = (
+				978169BCF835A8B55126BCA1 /* ExpoModulesProvider.swift */,
 			);
 			name = Snapigo;
 			sourceTree = "<group>";
@@ -93,8 +111,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				CD395B31F4AC9B06FA1951AF /* ExpoModulesProviders */,
-				B1306B1694E5E58B71A34C48 /* Pods */,
+				33FC508EF6309F89ACBA612D /* Pods */,
+				2207A2611745C35F34526830 /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -109,16 +127,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		B1306B1694E5E58B71A34C48 /* Pods */ = {
-			isa = PBXGroup;
-			children = (
-				DF9CFF403B10FC159FDA158C /* Pods-Snapigo.debug.xcconfig */,
-				B4EFC50CDF5FC6303C9E0F07 /* Pods-Snapigo.release.xcconfig */,
-			);
-			name = Pods;
-			path = Pods;
-			sourceTree = "<group>";
-		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -128,14 +136,6 @@
 			path = Snapigo/Supporting;
 			sourceTree = "<group>";
 		};
-		CD395B31F4AC9B06FA1951AF /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				830281CF31A448D22297BBA8 /* Snapigo */,
-			);
-			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -143,14 +143,14 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "Snapigo" */;
 			buildPhases = (
-				6D9817BEA3A1C4DB4543A51E /* [CP] Check Pods Manifest.lock */,
-				9C969FEDFF41AD822FAE72F8 /* [Expo] Configure project */,
+				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
+				73D3F966AECAA23CD3D0F3B6 /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
-				40F4C336B797BA69FED3F06E /* [CP] Embed Pods Frameworks */,
-				3C039155A8C3469283358A3F /* [CP] Copy Pods Resources */,
+				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
+				7BBA0E8794E8D09A52372C34 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -170,8 +170,8 @@
 				LastUpgradeCheck = 1130;
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
-						DevelopmentTeam = ZPQ62D43GF;
 						LastSwiftMigration = 1250;
+						DevelopmentTeam = "ZPQ62D43GF";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -202,7 +202,7 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				E651BDD42AFAB599BD205E2B /* PrivacyInfo.xcprivacy in Resources */,
+				E905C3DFF7D0C3D4A8BEC07E /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -224,7 +224,66 @@
 			shellPath = /bin/sh;
 			shellScript = "if [[ -f \"$PODS_ROOT/../.xcode.env\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env\"\nfi\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n# The project root by default is one level up from the ios directory\nexport PROJECT_ROOT=\"$PROJECT_DIR\"/..\n\nif [[ \"$CONFIGURATION\" = *Debug* ]]; then\n  export SKIP_BUNDLING=1\nfi\nif [[ -z \"$ENTRY_FILE\" ]]; then\n  # Set the entry JS file using the bundler's entry resolution.\n  export ENTRY_FILE=\"$(\"$NODE_BINARY\" -e \"require('expo/scripts/resolveAppEntry')\" \"$PROJECT_ROOT\" ios absolute | tail -n 1)\"\nfi\n\nif [[ -z \"$CLI_PATH\" ]]; then\n  # Use Expo CLI\n  export CLI_PATH=\"$(\"$NODE_BINARY\" --print \"require.resolve('@expo/cli', { paths: [require.resolve('expo/package.json')] })\")\"\nfi\nif [[ -z \"$BUNDLE_COMMAND\" ]]; then\n  # Default Expo CLI command for bundling\n  export BUNDLE_COMMAND=\"export:embed\"\nfi\n\n# Source .xcode.env.updates if it exists to allow\n# SKIP_BUNDLING to be unset if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.updates\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.updates\"\nfi\n# Source local changes to allow overrides\n# if needed\nif [[ -f \"$PODS_ROOT/../.xcode.env.local\" ]]; then\n  source \"$PODS_ROOT/../.xcode.env.local\"\nfi\n\n`\"$NODE_BINARY\" --print \"require('path').dirname(require.resolve('react-native/package.json')) + '/scripts/react-native-xcode.sh'\"`\n\n";
 		};
-		3C039155A8C3469283358A3F /* [CP] Copy Pods Resources */ = {
+		08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-Snapigo-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+		73D3F966AECAA23CD3D0F3B6 /* [Expo] Configure project */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "[Expo] Configure project";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Snapigo/expo-configure-project.sh\"\n";
+		};
+		7BBA0E8794E8D09A52372C34 /* [CP] Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-Snapigo/Pods-Snapigo-frameworks.sh",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
+			);
+			name = "[CP] Embed Pods Frameworks";
+			outputPaths = (
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Snapigo/Pods-Snapigo-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -270,65 +329,6 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Snapigo/Pods-Snapigo-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		40F4C336B797BA69FED3F06E /* [CP] Embed Pods Frameworks */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"${PODS_ROOT}/Target Support Files/Pods-Snapigo/Pods-Snapigo-frameworks.sh",
-				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermes.framework/hermes",
-			);
-			name = "[CP] Embed Pods Frameworks";
-			outputPaths = (
-				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermes.framework",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-Snapigo/Pods-Snapigo-frameworks.sh\"\n";
-			showEnvVarsInLog = 0;
-		};
-		6D9817BEA3A1C4DB4543A51E /* [CP] Check Pods Manifest.lock */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
-				"${PODS_ROOT}/Manifest.lock",
-			);
-			name = "[CP] Check Pods Manifest.lock";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"$(DERIVED_FILE_DIR)/Pods-Snapigo-checkManifestLockResult.txt",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
-			showEnvVarsInLog = 0;
-		};
-		9C969FEDFF41AD822FAE72F8 /* [Expo] Configure project */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "[Expo] Configure project";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# This script configures Expo modules and generates the modules provider file.\nbash -l -c \"./Pods/Target\\ Support\\ Files/Pods-Snapigo/expo-configure-project.sh\"\n";
-		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -337,9 +337,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				BFEE60DA5E764E67A5D53747 /* OcrModule.h in Sources */,
-				7B1D3415BAEF49DDAA0364DA /* OcrModule.mm in Sources */,
-				CF729F1AF7F0BAD49DF809E2 /* ExpoModulesProvider.swift in Sources */,
+				23FDFD6227724587A8BA4515 /* OcrModule.h in Sources */,
+				349102E9E6DB4CB7B0C76F8B /* OcrModule.mm in Sources */,
+				4CACD326FC614AB781E0854B /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -348,22 +348,18 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = DF9CFF403B10FC159FDA158C /* Pods-Snapigo.debug.xcconfig */;
+			baseConfigurationReference = A5BB0BD0087F796121A3B5F5 /* Pods-Snapigo.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Snapigo/Snapigo.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = ZPQ62D43GF;
 				ENABLE_BITCODE = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
 					"FB_SONARKIT_ENABLED=1",
 				);
-				HEADER_SEARCH_PATHS = "$(PODS_ROOT)/Headers/Public/**";
 				INFOPLIST_FILE = Snapigo/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -379,26 +375,26 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.pushpa.snapigo;
 				PRODUCT_NAME = Snapigo;
+				SWIFT_OBJC_BRIDGING_HEADER = "Snapigo/Snapigo-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
+				DEVELOPMENT_TEAM = "ZPQ62D43GF";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 			};
 			name = Debug;
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = B4EFC50CDF5FC6303C9E0F07 /* Pods-Snapigo.release.xcconfig */;
+			baseConfigurationReference = 8F2673CF2EC6332588806C97 /* Pods-Snapigo.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Snapigo/Snapigo.entitlements;
-				CODE_SIGN_IDENTITY = "Apple Development";
-				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = ZPQ62D43GF;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				HEADER_SEARCH_PATHS = "$(PODS_ROOT)/Headers/Public/**";
 				INFOPLIST_FILE = Snapigo/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -414,9 +410,13 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.pushpa.snapigo;
 				PRODUCT_NAME = Snapigo;
+				SWIFT_OBJC_BRIDGING_HEADER = "Snapigo/Snapigo-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
 				VERSIONING_SYSTEM = "apple-generic";
+				DEVELOPMENT_TEAM = "ZPQ62D43GF";
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
 			};
 			name = Release;
 		};
@@ -468,7 +468,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = "$(PODS_ROOT)/Headers/Public/**";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
@@ -529,7 +528,6 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				HEADER_SEARCH_PATHS = "$(PODS_ROOT)/Headers/Public/**";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (
 					/usr/lib/swift,
