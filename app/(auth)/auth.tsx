@@ -1,3 +1,4 @@
+// import '@/lib/geo';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -11,7 +12,6 @@ import {
   View
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
-
 export default function AuthScreen() {
   const router = useRouter();
 
@@ -38,12 +38,12 @@ export default function AuthScreen() {
     supabase.auth.getSession().then(({ data }) => {
       const uid = data.session?.user?.id ?? null;
       setUserId(uid);
-      if (uid) router.replace('/(protected)/(tabs)/list');
+      if (uid) router.replace('/(protected)/(tabs)/scan');
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       const uid = session?.user?.id ?? null;
       setUserId(uid);
-      if (uid) router.replace('/(protected)/(tabs)/list');
+      if (uid) router.replace('/(protected)/(tabs)/scan');
     });
     return () => sub.subscription.unsubscribe();
   }, [router]);

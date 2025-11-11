@@ -8,7 +8,7 @@ export default function ProtectedLayout() {
         {/* Tabs are a child route */}
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         {/* Any extra screens in the protected area */}
-        <Stack.Screen name="confirm" options={{ title: 'Confirm Coupon' }} />
+        {/* <Stack.Screen name="confirm" options={{ title: 'Confirm Coupon' }} /> */}
       </Stack>
     </AuthGate>
   );

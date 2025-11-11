@@ -27,6 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
+          <string>snapigo</string>
           <string>com.pushpa.snapigo</string>
         </array>
       </dict>
@@ -52,6 +53,16 @@
     </dict>
     <key>NSCameraUsageDescription</key>
     <string>We use the camera to scan coupons.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Allow Always so Snapigo can alert you near a store even if the app is closed.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Background location is required to trigger geofence notifications.</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>Snapigo uses your location to alert you about nearby coupons you saved.</string>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>location</string>
+    </array>
     <key>UILaunchStoryboardName</key>
     <string>SplashScreen</string>
     <key>UIRequiredDeviceCapabilities</key>

@@ -1,3 +1,4 @@
+import '@/lib/geo';
 import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
