@@ -1,4 +1,3 @@
-// lib/coupon-parse.ts
 import * as Location from 'expo-location';
 
 /** ---------- Shared types ---------- */
@@ -15,6 +14,7 @@ export type ParsedCoupon = {
   location_note?: string | null;
   terms?: string | null;
   title?: string | null;
+  expires_at?: string | null; // 👈 NEW
 };
 
 /** ---------- Common regex/helpers ---------- */
@@ -28,10 +28,10 @@ const PHONE_RE = new RegExp(
 );
 
 const MODE_RE = /\b(dine[\s-]?in|pickup|pick[\s-]?up)\b/i;
-const URL_RE  = /\b((?:https?:\/\/)?(?:www\.)?([a-z0-9\-]+)\.(?:com|net|org|co|us|edu))\b/i;
+const URL_RE = /\b((?:https?:\/\/)?(?:www\.)?([a-z0-9\-]+)\.(?:com|net|org|co|us|edu))\b/i;
 
 function toTitleCase(s: string) {
-  return s.replace(/\w\S*/g, w => w[0].toUpperCase() + w.slice(1).toLowerCase());
+  return s.replace(/\w\S*/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase());
 }
 
 // e.g., "meltingpot" -> "Melting Pot"
@@ -43,11 +43,17 @@ function spacedFromDomainLabel(label: string) {
   return toTitleCase(withSpaces);
 }
 
+// Normalize brand / line text for comparison: remove punctuation, spaces, ®, etc.
+function normalizeName(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 /** ---------- Lightweight, text-only extractor (keeps your old flow working) ---------- */
 /** Heuristics for discount/title */
 function pickBestPercent(text: string): number | null {
   const re = /(\d{1,3})\s*%/g;
-  let m: RegExpExecArray | null, best: number | null = null;
+  let m: RegExpExecArray | null,
+    best: number | null = null;
   while ((m = re.exec(text))) {
     const v = parseInt(m[1], 10);
     if (v >= 5 && v <= 100) best = best == null ? v : Math.max(best, v);
@@ -56,7 +62,8 @@ function pickBestPercent(text: string): number | null {
 }
 function pickBestAmount(text: string): number | null {
   const re = /(?:\$|USD\s*)\s*(\d+(?:\.\d{2})?)\s*(?:off|discount|save)?/gi;
-  let m: RegExpExecArray | null, best: number | null = null;
+  let m: RegExpExecArray | null,
+    best: number | null = null;
   while ((m = re.exec(text))) {
     const v = parseFloat(m[1]);
     if (!isNaN(v) && v > 0) best = best == null ? v : Math.max(best, v);
@@ -88,6 +95,30 @@ function detectMode(raw: string): ParsedCoupon['mode'] {
   return m[1].toLowerCase().includes('dine') ? 'dine-in' : 'pickup';
 }
 
+/** Extract an expiry date-looking string from the raw OCR text. */
+function extractExpiry(raw: string): string | null {
+  const text = raw.replace(/\s+/g, ' ');
+
+  // 01/05/2026, 1-5-26, 01.05.2026
+  const numericRe = /\b(0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])[\/\-\.](20\d{2}|\d{2})\b/;
+  const m1 = text.match(numericRe);
+  if (m1) return m1[0];
+
+  // Jan 5, 2026 / January 5 2026
+  const longRe =
+    /\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2},?\s+(20\d{2}|\d{2})\b/i;
+  const m2 = text.match(longRe);
+  if (m2) return m2[0];
+
+  // "Expires 12/31/26", "Valid thru 12-31-2026"
+  const labeledRe =
+    /\b(expires?|valid (?:thru|through|until))[:\s]+((0?[1-9]|1[0-2])[\/\-\.](0?[1-9]|[12]\d|3[01])[\/\-\.](20\d{2}|\d{2}))\b/i;
+  const m3 = text.match(labeledRe);
+  if (m3) return m3[2];
+
+  return null;
+}
+
 /**
  * Text-only extractor you already use.
  * Store/address are left undefined so the layout-aware extractor can take precedence.
@@ -96,13 +127,14 @@ export function extractCouponFields(
   text: string,
   _blocks?: { text: string; bbox?: BBox }[]
 ): ParsedCoupon {
-  const phoneMatch = [...(text.matchAll(PHONE_RE) ?? [])].map(m => m[0]);
+  const phoneMatch = [...(text.matchAll(PHONE_RE) ?? [])].map((m) => m[0]);
   const pickDigits = (s: string) => (s.match(/\d/g) || []).length;
   const phone = phoneMatch.length ? phoneMatch.sort((a, b) => pickDigits(b) - pickDigits(a))[0] : null;
 
   const title = deriveTitle(text);
   const terms = extractTerms(text);
-  const mode  = detectMode(text);
+  const mode = detectMode(text);
+  const expiry = extractExpiry(text); // 👈 NEW
 
   return {
     store: undefined,
@@ -112,16 +144,40 @@ export function extractCouponFields(
     location_note: null,
     terms,
     title,
+    expires_at: expiry, // 👈 NEW
   };
 }
 
 /** ---------- Layout-aware extractor (store/address/phone via bbox + optional geocode) ---------- */
 
 const STREET_SUFFIXES = [
-  'ST','STREET','AVE','AVENUE','RD','ROAD','BLVD','BOULEVARD','DR','DRIVE','HWY','HIGHWAY',
-  'LN','LANE','CT','COURT','PL','PLACE','PKWY','PARKWAY','WAY','TER','TERRACE','CIR','CIRCLE'
+  'ST',
+  'STREET',
+  'AVE',
+  'AVENUE',
+  'RD',
+  'ROAD',
+  'BLVD',
+  'BOULEVARD',
+  'DR',
+  'DRIVE',
+  'HWY',
+  'HIGHWAY',
+  'LN',
+  'LANE',
+  'CT',
+  'COURT',
+  'PL',
+  'PLACE',
+  'PKWY',
+  'PARKWAY',
+  'WAY',
+  'TER',
+  'TERRACE',
+  'CIR',
+  'CIRCLE',
 ];
-const ADDRESS_HINTS = [...STREET_SUFFIXES, 'STE','SUITE','#'];
+const ADDRESS_HINTS = [...STREET_SUFFIXES, 'STE', 'SUITE', '#'];
 const ZIP_RE = /\b\d{5}(?:-\d{4})?\b/;
 
 const allCapsRatio = (s: string) => {
@@ -130,12 +186,21 @@ const allCapsRatio = (s: string) => {
   const caps = letters.replace(/[^A-Z]/g, '').length;
   return caps / letters.length;
 };
+
+// Make street detection more robust: ignore punctuation and allow "ST." etc.
 const hasStreetToken = (s: string) => {
-  const up = s.toUpperCase();
-  return STREET_SUFFIXES.some(tok => up.includes(' ' + tok + ' ')) ||
-         ADDRESS_HINTS.some(tok => up.includes(' ' + tok + ' ')) ||
-         ZIP_RE.test(s);
+  const normalized = (' ' + s.toUpperCase() + ' ').replace(/[.,]/g, ' '); // "ST." -> " ST "
+  return (
+    STREET_SUFFIXES.some((tok) => normalized.includes(' ' + tok + ' ')) ||
+    ADDRESS_HINTS.some((tok) => normalized.includes(' ' + tok + ' ')) ||
+    ZIP_RE.test(s)
+  );
 };
+
+// Lines that are clearly offers / marketing, not addresses
+const ADDRESS_BAD_RE =
+  /\b(buy\s*\d|free|%|percent|off\b|save\b|coupon|offer|valid only|customer must)\b/i;
+
 const fuzzyScore = (a: string, b: string) => {
   const A = a.toLowerCase().trim();
   const B = b.toLowerCase().trim();
@@ -144,13 +209,15 @@ const fuzzyScore = (a: string, b: string) => {
   if (A.includes(B) || B.includes(A)) return 0.85;
   const at = new Set(A.split(/\s+/));
   const bt = new Set(B.split(/\s+/));
-  const inter = [...at].filter(t => bt.has(t)).length;
+  const inter = [...at].filter((t) => bt.has(t)).length;
   return inter / Math.max(at.size, bt.size);
 };
 
 // Try to stitch the top-most 1–3 short lines into a brand-like title (e.g., "Melting" + "Pot")
 function stitchTopTitle(lines: { text: string; block?: { bbox?: { y: number } } }[]) {
-  const sorted = [...lines].sort((a, b) => (a.block?.bbox?.y ?? 0) - (b.block?.bbox?.y ?? 0));
+  const sorted = [...lines].sort(
+    (a, b) => (a.block?.bbox?.y ?? 0) - (b.block?.bbox?.y ?? 0)
+  );
   const picks: string[] = [];
   for (const l of sorted.slice(0, 5)) {
     const t = l.text.trim();
@@ -173,18 +240,36 @@ function scoreStoreCandidate(line: string, block?: OcrLineBlock, brands?: string
   if (!hasDigits) score += 0.5;
   if (!hasAddrCue) score += 0.8;
 
+  // 🔥 Stronger brand matching: ignore punctuation & symbols when comparing
+  if (brands?.length) {
+    const normLine = normalizeName(line);
+    let brandBoost = 0;
+    for (const b of brands) {
+      const nb = normalizeName(b);
+      if (!nb || !normLine) continue;
+      if (normLine === nb || normLine.includes(nb) || nb.includes(normLine)) {
+        brandBoost = 2.5; // big bump if it's clearly that brand
+        break;
+      }
+    }
+
+    if (brandBoost === 0) {
+      // fallback to the older fuzzyScore, but weaker
+      const bestTokenScore = Math.max(...brands.map((b) => fuzzyScore(line, b)));
+      if (bestTokenScore >= 0.8) brandBoost = 2.0;
+      else if (bestTokenScore >= 0.6) brandBoost = 1.0;
+    }
+
+    score += brandBoost;
+  }
+
   if (block?.bbox) {
     const y = block.bbox.y ?? 0;
     const h = block.bbox.h ?? 0;
-    score += Math.max(0, 1.2 - (y / 1000)); // top-most better
-    score += Math.min(1.0, h / 100);        // larger font better
+    score += Math.max(0, 1.2 - y / 1000); // top-most better
+    score += Math.min(1.0, h / 100); // larger font better
     const centerX = (block.bbox.x ?? 0) + (block.bbox.w ?? 0) / 2;
     if (Math.abs(centerX - 200) < 60) score += 0.2; // tweak if you know camera width
-  }
-
-  if (brands?.length) {
-    const best = Math.max(...brands.map(b => fuzzyScore(line, b)));
-    score += best >= 0.8 ? 2.0 : best >= 0.6 ? 1.0 : 0;
   }
 
   if (line.length > 40) score -= 0.5;
@@ -192,16 +277,29 @@ function scoreStoreCandidate(line: string, block?: OcrLineBlock, brands?: string
 }
 
 function scoreAddressCandidate(line: string, idxFromTop: number) {
-  if (!line.trim()) return -999;
+  const raw = line.trim();
+  if (!raw) return -999;
+
+  // Immediately throw away obvious offer/headline lines
+  if (ADDRESS_BAD_RE.test(raw)) return -999;
+
   let score = 0;
-  if (hasStreetToken(line)) score += 1.5;
-  if (ZIP_RE.test(line)) score += 1.0;
-  if (/#|STE|SUITE|UNIT/i.test(line)) score += 0.4;
-  if (PHONE_RE.test(line)) score += 0.2;
-  score += Math.max(0, 0.8 - idxFromTop * 0.05); // small penalty for very top lines
-  const len = line.length;
-  if (len < 8) score -= 0.3;
-  if (len > 80) score -= 0.3;
+  const hasStreet = hasStreetToken(raw);
+  const hasZip = ZIP_RE.test(raw);
+  const hasPhone = PHONE_RE.test(raw);
+  const hasDigits = /\d/.test(raw);
+
+  if (hasStreet) score += 2.5;
+  if (hasZip) score += 1.5;
+  if (hasPhone) score += 0.6;
+  if (hasDigits) score += 0.4;
+
+  // Slight bias for being lower on the page but not too harsh
+  score += Math.max(0, 0.8 - idxFromTop * 0.05);
+
+  const len = raw.length;
+  if (len < 8 || len > 90) score -= 0.5;
+
   return score;
 }
 
@@ -213,32 +311,46 @@ export async function extractStoreAndAddressFromBlocks(
   blocks: OcrLineBlock[] | undefined,
   allText: string,
   options?: { brands?: string[]; tryGeocode?: boolean }
-): Promise<{ store: string | null; address: string | null; phone: string | null; geo?: { lat: number; lng: number } }> {
+): Promise<{
+  store: string | null;
+  address: string | null;
+  phone: string | null;
+  geo?: { lat: number; lng: number };
+}> {
   // Flatten to lines preserving each block's bbox
   const lines: { text: string; block?: OcrLineBlock }[] = [];
   if (blocks?.length) {
     for (const b of blocks) {
-      const parts = (b.text || '').split(/\n+/).map(s => s.trim()).filter(Boolean);
+      const parts = (b.text || '')
+        .split(/\n+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
       for (const s of parts) lines.push({ text: s, block: b });
     }
   } else {
-    allText.split(/\n+/).map(s => s.trim()).filter(Boolean).forEach(s => lines.push({ text: s }));
+    allText
+      .split(/\n+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((s) => lines.push({ text: s }));
   }
 
   // ---- Brand hints from URL and stitched top title
   let urlBrand: string | null = null;
   {
-    const allJoined = lines.map(l => l.text).join(' ');
+    const allJoined = lines.map((l) => l.text).join(' ');
     const m = allJoined.match(URL_RE);
     if (m && m[2]) urlBrand = spacedFromDomainLabel(m[2]);
   }
   const stitchedTop = stitchTopTitle(lines);
 
   // Build base store candidates
-  const baseStoreCands: { text: string; block?: OcrLineBlock; score: number }[] = lines.map(l => ({
-    ...l,
-    score: scoreStoreCandidate(l.text, l.block, options?.brands),
-  }));
+  const baseStoreCands: { text: string; block?: OcrLineBlock; score: number }[] = lines.map(
+    (l) => ({
+      ...l,
+      score: scoreStoreCandidate(l.text, l.block, options?.brands),
+    })
+  );
 
   if (stitchedTop) {
     baseStoreCands.push({
@@ -273,7 +385,10 @@ export async function extractStoreAndAddressFromBlocks(
       try {
         const g = await Location.geocodeAsync(cand.text);
         if (g?.length) {
-          const geoScore = 2.0 + (ZIP_RE.test(cand.text) ? 0.3 : 0) + (hasStreetToken(cand.text) ? 0.2 : 0);
+          const geoScore =
+            2.0 +
+            (ZIP_RE.test(cand.text) ? 0.3 : 0) +
+            (hasStreetToken(cand.text) ? 0.2 : 0);
           const total = cand.score + geoScore;
           if (total > bestScore) {
             bestScore = total;
@@ -293,7 +408,7 @@ export async function extractStoreAndAddressFromBlocks(
   // Prefer a 10-digit phone if present; else first match
   let phone: string | null = null;
   {
-    const matches = [...(allText.matchAll(PHONE_RE) ?? [])].map(m => m[0]);
+    const matches = [...(allText.matchAll(PHONE_RE) ?? [])].map((m) => m[0]);
     if (matches.length) {
       const digits = (s: string) => (s.match(/\d/g) || []).length;
       matches.sort((a, b) => digits(b) - digits(a));

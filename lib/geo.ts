@@ -4,6 +4,8 @@
 // - Registers regions from your Supabase coupons table
 // - Sends local notifications when you enter a saved place
 // - Includes helpers for testing and "notify now if already inside"
+// - NOW ALSO logs notifications into an in-app inbox + unread count
+// - NEW: Includes both owned coupons and saved public coupons for geofencing
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
@@ -31,6 +33,15 @@ type Row = {
   attrs?: any;             // expects attrs.address and optional attrs.geo.{lat,lng}
 };
 
+type InboxItem = {
+  id: string;
+  title: string;
+  body: string;
+  createdAt: number;
+  read: boolean;
+  data?: any;
+};
+
 /* ----------------------------------------------------------------------------
  * Constants
  * --------------------------------------------------------------------------*/
@@ -38,11 +49,154 @@ const TASK = 'SNAPIGO_GEOFENCE_TASK';           // Geofencing task name
 const META_KEY = 'snapigo_region_meta';         // Stored notif metadata per region
 const STATE_KEY = 'snapigo_notif_state';        // Anti-spam throttle state
 const MAX_REGIONS = 18;                         // Keep under iOS ~20 region cap
-const DAILY_CAP = 3;                            // Max notifications per day
-const COOLDOWN_H = 24;                          // Per-coupon cooldown (hours)
+const DAILY_CAP = 50;                           // Max notifications per day
+const COOLDOWN_H = 0.01;                        // Per-coupon cooldown (hours)
 const MIN_RADIUS = 150;                         // iOS geofencing is coarse; keep >=150m
 const MAX_RADIUS = 800;                         // Don't spam huge circles
 const DEFAULT_RADIUS = 250;                     // Fallback radius when not provided
+
+// 🔴 Shared keys for in-app "inbox" + unread badge
+export const INBOX_KEY = 'snapigo_inbox';
+export const UNREAD_KEY = 'snapigo_unread_count';
+
+/* ----------------------------------------------------------------------------
+ * Emoji + catchy notification copy helpers
+ * --------------------------------------------------------------------------*/
+
+function emojiForStoreName(name?: string | null) {
+  const s = (name || '').toLowerCase();
+
+  if (/mcdonald/.test(s) || /\bburger\b/.test(s) || /\bgrill\b/.test(s)) return '🍔';
+  if (/\bpizza\b/.test(s)) return '🍕';
+  if (/\b(coffee|cafe|starbucks|espresso)\b/.test(s)) return '☕️';
+  if (/\b(taco|burrito|mex)\b/.test(s)) return '🌮';
+  if (/\b(grocery|market|mart|superstore)\b/.test(s)) return '🛒';
+  if (/\b(shop|store|retail|mall)\b/.test(s)) return '🛍️';
+  return '🏷️';
+}
+
+/**
+ * Clean up deal titles so we don't show ugly "undefined off" / "% off" / "$ off".
+ * Rules:
+ *  - remove the strings "undefined" / "null"
+ *  - collapse extra spaces
+ *  - if it contains "off" but has NO digits (0–9) → treat as empty
+ *  - hide incomplete things like "$ off", "$", "off"
+ */
+function sanitizeDealTitle(raw?: string | null): string {
+  if (!raw) return '';
+
+  let t = raw
+    .replace(/undefined/gi, '')
+    .replace(/null/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!t) return '';
+
+  const lower = t.toLowerCase();
+
+  // "off" with no numbers at all → useless
+  if (lower.includes('off') && !/\d/.test(lower)) {
+    return '';
+  }
+
+  // Incomplete junk patterns
+  if (/^\$+\s*off$/i.test(lower)) return ''; // "$ off"
+  if (/^\$+$/.test(lower)) return '';        // "$"
+  if (/^off$/i.test(lower)) return '';       // "off"
+
+  return t;
+}
+
+function buildNearbyNotifContent(
+  storeName?: string | null,
+  dealTitle?: string | null,
+  validTo?: string | null
+) {
+  const emoji = emojiForStoreName(storeName);
+  const title = storeName
+    ? `${emoji} You’re near ${storeName}`
+    : `${emoji} Saved deal nearby`;
+
+  // 🧹 Clean up the title before using it in the body
+  const cleaned = sanitizeDealTitle(dealTitle);
+  const bodyCore =
+    cleaned || 'One of your saved coupons is close by';
+
+  let expiryChunk = '';
+
+  if (validTo) {
+    const d = new Date(validTo);
+    if (!Number.isNaN(d.getTime())) {
+      expiryChunk = ` • Valid until ${d.toLocaleDateString()}`;
+    }
+  }
+
+  const body = `${bodyCore}${expiryChunk}. Use it before it expires!.`;
+
+  // color = Android accent color for the notification (background of small icon / accent bar)
+  const color = '#f97316'; // nice warm orange that matches the app
+
+  return { title, body, color };
+}
+
+/* ----------------------------------------------------------------------------
+ * Inbox helpers (log notifications for Notify tab)
+ * --------------------------------------------------------------------------*/
+
+async function appendNotificationToInbox(args: {
+  title: string;
+  body: string;
+  data?: any;
+}) {
+  try {
+    const raw = await AsyncStorage.getItem(INBOX_KEY);
+    let inbox: InboxItem[] = raw ? JSON.parse(raw) : [];
+
+    const item: InboxItem = {
+      id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      title: args.title,
+      body: args.body,
+      createdAt: Date.now(),
+      read: false,
+      data: args.data ?? null,
+    };
+
+    // newest first
+    inbox.unshift(item);
+    // keep last 50
+    if (inbox.length > 50) inbox = inbox.slice(0, 50);
+
+    await AsyncStorage.setItem(INBOX_KEY, JSON.stringify(inbox));
+
+    const rawCount = await AsyncStorage.getItem(UNREAD_KEY);
+    const prev = rawCount ? parseInt(rawCount, 10) || 0 : 0;
+    await AsyncStorage.setItem(UNREAD_KEY, String(prev + 1));
+  } catch {
+    // ignore logging errors
+  }
+}
+
+// Use this everywhere to send + log notifications
+export async function logAndScheduleNotification(args: {
+  title: string;
+  body: string;
+  data?: any;
+  color?: string;
+}) {
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title: args.title,
+      body: args.body,
+      data: args.data,
+      color: args.color,
+    },
+    trigger: null,
+  });
+
+  await appendNotificationToInbox(args);
+}
 
 /* ----------------------------------------------------------------------------
  * Notification handler (set once). This decides how notifs show on iOS.
@@ -50,11 +204,10 @@ const DEFAULT_RADIUS = 250;                     // Fallback radius when not prov
 // Guard across hot reloads/dev client
 if (!(globalThis as any).__SNAPIGO_NOTIF_HANDLER_SET__) {
   Notifications.setNotificationHandler({
-    // Use Banner/List on iOS (replaces deprecated shouldShowAlert)
     handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
       shouldShowBanner: true,
       shouldShowList: true,
-      shouldPlaySound: false,
+      shouldPlaySound: true,   // 🔔 make alerts feel “alive”
       shouldSetBadge: false,
     }),
   });
@@ -81,14 +234,18 @@ if (!(globalThis as any).__SNAPIGO_TASK_DEFINED__) {
     // Respect anti-spam limits (daily cap & per-key cooldown)
     if (!(await allowNotify(key))) return;
 
-    // Fire the local notification
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title: entry.title || 'Nearby deal',
-        body: entry.body || 'You saved a coupon here.',
-        data: { couponId: entry.couponId || null },
-      },
-      trigger: null, // fire immediately
+    // Build catchy, coupon-specific copy
+    const { title, body, color } = buildNearbyNotifContent(
+      entry.storeName,
+      entry.dealTitle,
+      entry.validTo
+    );
+
+    await logAndScheduleNotification({
+      title,
+      body,
+      data: { couponId: entry.couponId || null },
+      color,
     });
 
     await markNotified(key);
@@ -101,10 +258,6 @@ if (!(globalThis as any).__SNAPIGO_TASK_DEFINED__) {
  * Public API
  * --------------------------------------------------------------------------*/
 
-/**
- * Request notifications + location (foreground + background) permissions.
- * Call this from UI before registering geofences.
- */
 export async function initGeo() {
   const n = await Notifications.requestPermissionsAsync();
   if (n.status !== 'granted') return false;
@@ -119,21 +272,49 @@ export async function initGeo() {
 }
 
 /**
- * Fetch coupons from Supabase and register geofences for them.
- * - Expects your "coupons" table to have: id, title, expires_at, store, attrs
- * - attrs.address is used to geocode if lat/lng is missing
+ * NEW:
+ * Fetch BOTH:
+ *  - coupons you own (owner_id = user)
+ *  - coupons you saved from the public feed (coupon_saves)
+ * and register geofences for the merged set.
  */
 export async function registerFromSupabase(ownerId: string) {
-  const { data, error } = await supabase
+  // 1) Owned coupons
+  const { data: owned, error: ownedErr } = await supabase
     .from('coupons')
     .select('id,title,expires_at,store,attrs')
     .eq('owner_id', ownerId)
     .order('created_at', { ascending: false })
     .limit(200);
 
-  if (error) throw error;
+  if (ownedErr) throw ownedErr;
 
-  const coupons = (data || []).map((row: Row) => {
+  // 2) Saved coupons (via coupon_saves → coupons)
+  const { data: savedRows, error: savedErr } = await supabase
+    .from('coupon_saves')
+    .select('coupon:coupons ( id,title,expires_at,store,attrs )')
+    .eq('user_id', ownerId)
+    .order('created_at', { ascending: false })
+    .limit(400);
+
+  if (savedErr) throw savedErr;
+
+  // 3) Merge + dedupe by coupon id
+  const byId = new Map<string, any>();
+
+  for (const row of owned ?? []) {
+    byId.set(row.id, row);
+  }
+
+  for (const row of savedRows ?? []) {
+    const c = (row as any).coupon;
+    if (c && !byId.has(c.id)) {
+      byId.set(c.id, c);
+    }
+  }
+
+  // 4) Convert into the shape registerFromCoupons expects
+  const coupons = Array.from(byId.values()).map((row: any) => {
     const attrs = row.attrs || {};
     const storeObj: Store = {
       name: row.store || attrs.store?.name,
@@ -157,19 +338,13 @@ export async function registerFromSupabase(ownerId: string) {
 /**
  * Register geofences from an in-memory list:
  * [{ id, title, valid_to, store: { address | lat | lng | radius } }, ...]
- * - Ensures coordinates (geocodes address if needed)
- * - Ranks by distance and "expiring soon"
- * - Registers up to MAX_REGIONS
- * - Immediately notifies once if you're already inside any region
  */
 export async function registerFromCoupons(
   coupons: Array<{ id: string; title?: string; valid_to?: string; store: Store }>
 ) {
-  // Current device position (reference point for scoring + inside-now check)
   const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   const anchor = { lat: pos.coords.latitude, lng: pos.coords.longitude };
 
-  // Ensure coords for each coupon (use saved lat/lng, else geocode address)
   const withCoords: Array<{
     id: string; title?: string; valid_to?: string;
     store: Required<Pick<Store, 'lat' | 'lng'>> & Store
@@ -192,17 +367,15 @@ export async function registerFromCoupons(
     }
   }
 
-  // Score by distance and boost if expiring within ~14 days (lower score = better)
   const scored = withCoords
     .map((c) => {
-      const dist = haversine(anchor.lat, anchor.lng, c.store.lat!, c.store.lng!); // meters
-      const expBoost = Math.max(0, 1 - daysUntil(c.valid_to) / 14); // 0..1
+      const dist = haversine(anchor.lat, anchor.lng, c.store.lat!, c.store.lng!);
+      const expBoost = Math.max(0, 1 - daysUntil(c.valid_to) / 14);
       return { c, score: dist - expBoost * 500 };
     })
     .sort((a, b) => a.score - b.score)
     .slice(0, MAX_REGIONS);
 
-  // Build region list
   const regions = scored.map(({ c }) => ({
     identifier: c.id,
     latitude: c.store.lat!,
@@ -212,25 +385,19 @@ export async function registerFromCoupons(
     notifyOnExit: false,
   }));
 
-  // Persist metadata used by the background task to compose notifications
   const meta: Record<string, any> = {};
   scored.forEach(({ c }) => {
     meta[c.id] = {
       couponId: c.id,
-      title: c.title || (c.store.name ? `Nearby: ${c.store.name}` : 'Nearby deal'),
-      body: c.valid_to
-        ? `Valid until ${new Date(c.valid_to).toLocaleDateString()}`
-        : 'You saved a coupon here.',
+      storeName: c.store.name ?? null,
+      dealTitle: c.title ?? null,
+      validTo: c.valid_to ?? null,
     };
   });
 
-  // Replace any previous set, then start geofencing with the new regions
   try { await Location.stopGeofencingAsync(TASK); } catch {}
   await AsyncStorage.setItem(META_KEY, JSON.stringify(meta));
   await Location.startGeofencingAsync(TASK, regions);
-
-  // OPTIONAL: log for debugging
-  // console.log('REGIONS:', regions);
 
   // If you're already inside any region right now, send ONE immediate notification
   for (const r of regions) {
@@ -238,17 +405,23 @@ export async function registerFromCoupons(
     if (dist <= r.radius) {
       const entry = meta[r.identifier];
       const key = entry.merchantId || entry.couponId || r.identifier;
+
       if (await allowNotify(key)) {
-        await Notifications.scheduleNotificationAsync({
-          content: {
-            title: entry.title,
-            body: entry.body,
-            data: { couponId: entry.couponId || null },
-          },
-          trigger: null,
+        const { title, body, color } = buildNearbyNotifContent(
+          entry.storeName,
+          entry.dealTitle,
+          entry.validTo
+        );
+
+        await logAndScheduleNotification({
+          title,
+          body,
+          data: { couponId: entry.couponId || null },
+          color,
         });
+
         await markNotified(key);
-        break; // avoid spamming if multiple include your current position
+        break; // 🔹 only one immediate banner
       }
     }
   }
@@ -257,23 +430,29 @@ export async function registerFromCoupons(
 }
 
 /**
- * One-tap test: create a single geofence circle at your current location.
- * - Good for proving that permissions + background task are wired
- * - Includes an "inside-now" notification so you see a banner without moving
+ * One-tap test region
  */
-export async function registerSingleTestHere(radiusM = DEFAULT_RADIUS, identifier = 'TEST_AREA') {
+export async function registerSingleTestHere(
+  radiusM = DEFAULT_RADIUS,
+  identifier = 'TEST_AREA'
+) {
   const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   const { latitude, longitude } = pos.coords;
   const radius = clampRadius(radiusM);
 
-  // Clear previous regions and set simple message meta for this test region
   try { await Location.stopGeofencingAsync(TASK); } catch {}
   await AsyncStorage.setItem(
     META_KEY,
-    JSON.stringify({ [identifier]: { title: 'Test area', body: 'Geofence entered' } })
+    JSON.stringify({
+      [identifier]: {
+        couponId: null,
+        storeName: 'Test spot',
+        dealTitle: 'Geofence test',
+        validTo: null,
+      },
+    })
   );
 
-  // Start a single region centered on the current location
   await Location.startGeofencingAsync(TASK, [{
     identifier,
     latitude,
@@ -283,39 +462,78 @@ export async function registerSingleTestHere(radiusM = DEFAULT_RADIUS, identifie
     notifyOnExit: false,
   }]);
 
-  // Fire once immediately so you see a banner without leaving the area
-  if (await allowNotify(identifier)) {
-    await Notifications.scheduleNotificationAsync({
-      content: { title: 'Test area', body: 'Geofence entered', data: { couponId: null } },
-      trigger: null,
+  const key = identifier;
+  if (await allowNotify(key)) {
+    const { title, body, color } = buildNearbyNotifContent('Test spot', 'Geofence test', null);
+
+    await logAndScheduleNotification({
+      title,
+      body,
+      data: { couponId: null },
+      color,
     });
-    await markNotified(identifier);
+
+    await markNotified(key);
   }
 }
 
 /**
- * Check saved coupons and send ONE notification now if you're already inside
- * any of them (useful for home testing without moving).
+ * "Notify once if I'm already inside any saved place."
+ * Now considers both owned + saved coupons.
  */
-export async function notifyOnceIfInsideNowFromSupabase(ownerId: string, fallbackRadiusM = 400) {
-  // Load rows
-  const { data, error } = await supabase
+export async function notifyOnceIfInsideNowFromSupabase(
+  ownerId: string,
+  fallbackRadiusM = 400
+) {
+  // 1) Owned coupons
+  const { data: owned, error: ownedErr } = await supabase
     .from('coupons')
     .select('id,title,expires_at,store,attrs')
     .eq('owner_id', ownerId)
     .order('created_at', { ascending: false })
     .limit(200);
 
-  if (error) throw error;
+  if (ownedErr) throw ownedErr;
 
-  // Current position
+  // 2) Saved coupons
+  const { data: savedRows, error: savedErr } = await supabase
+    .from('coupon_saves')
+    .select('coupon:coupons ( id,title,expires_at,store,attrs )')
+    .eq('user_id', ownerId)
+    .order('created_at', { ascending: false })
+    .limit(400);
+
+  if (savedErr) throw savedErr;
+
+  // 3) Merge + dedupe into a single array "rows"
+  const byId = new Map<string, any>();
+
+  for (const row of owned ?? []) {
+    byId.set(row.id, row);
+  }
+
+  for (const row of savedRows ?? []) {
+    const c = (row as any).coupon;
+    if (c && !byId.has(c.id)) {
+      byId.set(c.id, c);
+    }
+  }
+
+  const data = Array.from(byId.values());
+
   const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
   const me = { lat: pos.coords.latitude, lng: pos.coords.longitude };
 
-  // Ensure coords
   type C = {
     id: string; title?: string; valid_to?: string | null;
-    store: { name?: string; address?: string; lat: number; lng: number; radius_m?: number; default_radius_m?: number }
+    store: {
+      name?: string;
+      address?: string;
+      lat: number;
+      lng: number;
+      radius_m?: number;
+      default_radius_m?: number;
+    };
   };
   const withCoords: C[] = [];
 
@@ -346,10 +564,8 @@ export async function notifyOnceIfInsideNowFromSupabase(ownerId: string, fallbac
     }
   }
 
-  // No valid coords — nothing to evaluate
   if (!withCoords.length) return { fired: false, reason: 'no_coords', nearestDistanceM: undefined };
 
-  // Find the nearest saved place and its radius
   let best: { c: C; dist: number; radius: number } | null = null;
   for (const c of withCoords) {
     const dist = haversine(me.lat, me.lng, c.store.lat, c.store.lng);
@@ -359,34 +575,175 @@ export async function notifyOnceIfInsideNowFromSupabase(ownerId: string, fallbac
 
   if (!best) return { fired: false, reason: 'no_best', nearestDistanceM: undefined };
 
-  // If already inside, send one local notification (respect throttle)
   if (best.dist <= best.radius) {
     const entry = {
       couponId: best.c.id,
-      title: best.c.title || (best.c.store.name ? `Nearby: ${best.c.store.name}` : 'Nearby deal'),
-      body: best.c.valid_to
-        ? `Valid until ${new Date(best.c.valid_to).toLocaleDateString()}`
-        : 'You saved a coupon here.',
+      storeName: best.c.store.name,
+      dealTitle: best.c.title ?? null,
+      validTo: best.c.valid_to ?? null,
     };
 
     if (await allowNotify(entry.couponId)) {
-      await Notifications.scheduleNotificationAsync({
-        content: { title: entry.title, body: entry.body, data: { couponId: entry.couponId } },
-        trigger: null,
+      const { title, body, color } = buildNearbyNotifContent(
+        entry.storeName,
+        entry.dealTitle,
+        entry.validTo
+      );
+
+      await logAndScheduleNotification({
+        title,
+        body,
+        data: { couponId: entry.couponId },
+        color,
       });
+
       await markNotified(entry.couponId);
-      return { fired: true, id: best.c.id, distanceM: Math.round(best.dist), radiusM: best.radius };
+      return {
+        fired: true,
+        id: best.c.id,
+        distanceM: Math.round(best.dist),
+        radiusM: best.radius,
+      };
     } else {
       return { fired: false, reason: 'throttled', nearestDistanceM: Math.round(best.dist) };
     }
   }
 
-  // Not inside any region — report nearest distance for debugging
   return { fired: false, reason: 'outside', nearestDistanceM: Math.round(best.dist) };
 }
 
 /**
- * Stop all geofences (useful when resetting state).
+ * Count how many coupons (owned + saved) you are currently inside (based on location).
+ * Returns { countInside, nearestDistanceM }.
+ */
+export async function countNearbyCoupons(
+  ownerId: string,
+  fallbackRadiusM = 400
+): Promise<{ countInside: number; nearestDistanceM?: number }> {
+  // 1) Owned
+  const { data: owned, error: ownedErr } = await supabase
+    .from('coupons')
+    .select('id,title,expires_at,store,attrs')
+    .eq('owner_id', ownerId)
+    .order('created_at', { ascending: false })
+    .limit(200);
+
+  if (ownedErr) throw ownedErr;
+
+  // 2) Saved
+  const { data: savedRows, error: savedErr } = await supabase
+    .from('coupon_saves')
+    .select('coupon:coupons ( id,title,expires_at,store,attrs )')
+    .eq('user_id', ownerId)
+    .order('created_at', { ascending: false })
+    .limit(400);
+
+  if (savedErr) throw savedErr;
+
+  // 3) Merge + dedupe
+  const byId = new Map<string, any>();
+
+  for (const row of owned ?? []) {
+    byId.set(row.id, row);
+  }
+
+  for (const row of savedRows ?? []) {
+    const c = (row as any).coupon;
+    if (c && !byId.has(c.id)) {
+      byId.set(c.id, c);
+    }
+  }
+
+  const data = Array.from(byId.values());
+
+  // Get current location
+  const pos = await Location.getCurrentPositionAsync({
+    accuracy: Location.Accuracy.Balanced,
+  });
+  const me = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+
+  type C = {
+    id: string;
+    title?: string;
+    valid_to?: string | null;
+    store: {
+      name?: string;
+      address?: string;
+      lat: number;
+      lng: number;
+      radius_m?: number;
+      default_radius_m?: number;
+    };
+  };
+
+  const withCoords: C[] = [];
+
+  for (const row of data || []) {
+    const attrs = (row as any).attrs || {};
+    let lat = attrs.geo?.lat ?? attrs.lat;
+    let lng = attrs.geo?.lng ?? attrs.lng;
+    const address = attrs.address || attrs.store?.address;
+    const name = (row as any).store || attrs.store?.name;
+
+    if ((lat == null || lng == null) && address) {
+      try {
+        const r = await Location.geocodeAsync(address);
+        if (r?.length) {
+          lat = r[0].latitude;
+          lng = r[0].longitude;
+        }
+      } catch {
+        // ignore geocoding errors
+      }
+    }
+
+    if (lat != null && lng != null) {
+      withCoords.push({
+        id: (row as any).id,
+        title: (row as any).title || undefined,
+        valid_to: (row as any).expires_at || undefined,
+        store: {
+          name,
+          address,
+          lat,
+          lng,
+          radius_m: attrs.radius_m,
+          default_radius_m: attrs.default_radius_m,
+        },
+      });
+    }
+  }
+
+  if (!withCoords.length) {
+    return { countInside: 0, nearestDistanceM: undefined };
+  }
+
+  let countInside = 0;
+  let nearest: number | undefined = undefined;
+
+  for (const c of withCoords) {
+    const dist = haversine(me.lat, me.lng, c.store.lat, c.store.lng);
+    const r = clampRadius(
+      c.store.default_radius_m ?? c.store.radius_m ?? fallbackRadiusM
+    );
+
+    if (nearest == null || dist < nearest) {
+      nearest = dist;
+    }
+
+    if (dist <= r) {
+      countInside += 1;
+    }
+  }
+
+  return {
+    countInside,
+    nearestDistanceM: nearest != null ? Math.round(nearest) : undefined,
+  };
+}
+
+/**
+ * Stop all geofences
  */
 export async function stopAllGeofences() {
   try { await Location.stopGeofencingAsync(TASK); } catch {}
@@ -396,12 +753,10 @@ export async function stopAllGeofences() {
  * Helpers
  * --------------------------------------------------------------------------*/
 
-/** Enforce sane radius bounds */
 function clampRadius(r: number) {
   return Math.max(MIN_RADIUS, Math.min(MAX_RADIUS, r));
 }
 
-/** Anti-spam guard: daily cap + per-key cooldown */
 async function allowNotify(key: string) {
   const now = Date.now();
   const s = await AsyncStorage.getItem(STATE_KEY);
@@ -421,7 +776,6 @@ async function allowNotify(key: string) {
   return true;
 }
 
-/** Update throttle state after a notification is sent */
 async function markNotified(key: string) {
   const now = Date.now();
   const s = await AsyncStorage.getItem(STATE_KEY);
@@ -436,10 +790,9 @@ async function markNotified(key: string) {
   await AsyncStorage.setItem(STATE_KEY, JSON.stringify(state));
 }
 
-/** Haversine distance in meters between two lat/lng points */
 function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   const toRad = (v: number) => (v * Math.PI) / 180;
-  const R = 6371e3; // meters
+  const R = 6371e3;
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
   const a =
@@ -448,7 +801,6 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/** Days until a given ISO date (negative if already expired) */
 function daysUntil(iso?: string | null) {
   if (!iso) return 9999;
   return (new Date(iso).getTime() - Date.now()) / (1000 * 60 * 60 * 24);

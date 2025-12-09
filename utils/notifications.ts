@@ -1,39 +1,49 @@
-import * as Notifications from "expo-notifications";
-import { Platform } from "react-native";
+// utils/notifications.ts
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 
-// Show alerts even when app is foregrounded (so you can see it during dev)
+// Show banners even when the app is foregrounded (iOS 14+ API)
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
+  handleNotification: async (): Promise<Notifications.NotificationBehavior> => ({
+    shouldShowBanner: true,  // replaces deprecated shouldShowAlert
+    shouldShowList: true,    // show in Notification Center
     shouldPlaySound: false,
     shouldSetBadge: false,
   }),
 });
 
 export async function ensureNotifPermissions(): Promise<boolean> {
-  // If already granted/provisional on iOS, we're good
-  const settings = await Notifications.getPermissionsAsync();
-  if (settings.granted || settings.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL) {
-    await setupAndroidChannel();
-    return true;
+  const current = await Notifications.getPermissionsAsync();
+
+  const granted =
+    !!current.granted ||
+    current.ios?.status === Notifications.IosAuthorizationStatus.AUTHORIZED ||
+    current.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+
+  if (!granted) {
+    const req = await Notifications.requestPermissionsAsync();
+    const ok =
+      !!req.granted ||
+      req.ios?.status === Notifications.IosAuthorizationStatus.AUTHORIZED ||
+      req.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+    if (!ok) return false;
   }
-  // Ask user
-  const req = await Notifications.requestPermissionsAsync();
+
   await setupAndroidChannel();
-  return !!req.granted || req.ios?.status === Notifications.IosAuthorizationStatus.PROVISIONAL;
+  return true;
 }
 
 async function setupAndroidChannel() {
-  if (Platform.OS !== "android") return;
-  await Notifications.setNotificationChannelAsync("snapigo-default", {
-    name: "General",
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync('snapigo-default', {
+    name: 'General',
     importance: Notifications.AndroidImportance.DEFAULT,
   });
 }
 
 export async function sendNow(title: string, body: string) {
   await Notifications.scheduleNotificationAsync({
-    content: { title, body },
-    trigger: null, // fire immediately
+    content: { title, body }, // no channelId on iOS
+    trigger: null,            // fire immediately
   });
 }

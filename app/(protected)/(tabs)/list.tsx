@@ -1,5 +1,6 @@
 // app/(tabs)/list.tsx
 import '@/lib/geo';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -13,13 +14,10 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../../lib/supabase';
 
 // Prefer the new helper that supports search/publication filtering:
-import { getCouponsByScope, deleteCoupon } from '../../../lib/coupons';
-// If you haven't added getCouponsByScope yet, temporarily swap to:
-// import { getMyCoupons as getCouponsByScopeShim, deleteCoupon } from '../../../lib/coupons';
+import { deleteCoupon, getCouponsByScope } from '../../../lib/coupons';
 
 type Visibility = 'private' | 'public';
 
@@ -28,7 +26,7 @@ type Row = {
   store: string | null;
   title: string | null;
   terms: string | null;
-  publication?: string | null; // 👈 NEW
+  publication?: string | null;
   category?: 'food' | 'retail' | 'grocery' | 'other';
   expires_at?: string | null;
   created_at?: string | null;
@@ -36,7 +34,27 @@ type Row = {
   saves_count?: number | null;
 };
 
-const PALETTE = ['#FFD1E0', '#E5FFF6', '#FFF9C7', '#FFCBA4'];
+const SCREEN_BG = '#ffebd5';
+const PINK = '#FFD1E0';
+
+// Alternating coupon themes
+const THEMES = [
+  {
+    stub: '#FFE8D9',
+    border: '#FB923C',
+    body: '#FFFDF8',
+  },
+  {
+    stub: '#D9FFE8',
+    border: '#34D399',
+    body: '#F8FFFB',
+  },
+  {
+    stub: '#E9D9FF',
+    border: '#A78BFA',
+    body: '#FBF8FF',
+  },
+];
 
 function pickEmoji(store?: string | null) {
   const s = (store || '').toLowerCase();
@@ -59,6 +77,41 @@ function timeAgo(iso?: string | null) {
   return `${d}d ago`;
 }
 
+/**
+ * Clean up title so we don't show ugly "undefined off" / "% off" / "$ off".
+ * Rules:
+ * - strip "undefined" / "null"
+ * - collapse spaces
+ * - if it contains "off" but NO digits at all → hide it
+ * - hide incomplete things like "$ off", "$", "off"
+ */
+function sanitizeTitle(title?: string | null) {
+  if (!title) return '';
+
+  // remove junk fragments first
+  let t = title
+    .replace(/undefined/gi, '')
+    .replace(/null/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!t) return '';
+
+  const lower = t.toLowerCase();
+
+  // If mentions "off" but has no digits at all (no 5, 10, 20, etc.) → useless
+  if (lower.includes('off') && !/\d/.test(lower)) {
+    return '';
+  }
+
+  // Incomplete patterns to hide
+  if (/^\$+\s*off$/i.test(lower)) return ''; // "$ off"
+  if (/^\$+$/.test(lower)) return '';        // "$"
+  if (/^off$/i.test(lower)) return '';       // "off"
+
+  return t;
+}
+
 export default function ListScreen() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +122,7 @@ export default function ListScreen() {
   const [debouncedQ, setDebouncedQ] = useState('');
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [pubOptions, setPubOptions] = useState<string[]>([]); // distinct publications for chips
+  const [pubOptions, setPubOptions] = useState<string[]>([]);
   const [pubFilter, setPubFilter] = useState<string | null>(null); // null = All
 
   // Debounce the search box
@@ -127,17 +180,15 @@ export default function ListScreen() {
             .limit(200);
 
           const uniq = Array.from(
-            new Set((pubs ?? [])
-              .map((d) => (d.publication ?? '').trim())
-              .filter(Boolean)
+            new Set(
+              (pubs ?? [])
+                .map((d) => (d.publication ?? '').trim())
+                .filter(Boolean)
             )
           );
-          // Add “Independent” chip if you store nulls for no-publisher
-          // (Uncomment if you’d like to force show)
-          // uniq.unshift('Independent');
           setPubOptions(uniq);
         } catch {
-          // ignore; chips just won’t show if this fails
+          // ignore
         }
       }
     } catch (e: any) {
@@ -165,13 +216,12 @@ export default function ListScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          // optimistic remove
           const prev = rows;
           setRows((r) => r.filter((x) => x.id !== couponId));
           try {
             await deleteCoupon(couponId);
           } catch (e: any) {
-            setRows(prev); // rollback
+            setRows(prev);
             Alert.alert('Delete failed', e?.message ?? 'Please try again.');
           }
         },
@@ -181,22 +231,31 @@ export default function ListScreen() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffebd5' }}>
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: SCREEN_BG,
+        }}
+      >
         <ActivityIndicator />
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#ffebd5', padding: 10 }}>
+    <View style={{ flex: 1, backgroundColor: SCREEN_BG }}>
       <FlatList
         data={rows}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 16 }}
         ListHeaderComponent={
-          <View style={{ marginBottom: 10 }}>
-            <Text style={{ fontSize: 22, fontWeight: '800', color: '#5a4636' }}>My Coupons</Text>
+          <View style={{ marginBottom: 10, marginTop: 10 }}>
+            <Text style={{ fontSize: 22, fontWeight: '800', color: '#5a4636' }}>
+              My Coupons
+            </Text>
             <Text style={{ color: '#6b5b4d', marginBottom: 8 }}>{countText}</Text>
 
             {/* Search box */}
@@ -211,6 +270,11 @@ export default function ListScreen() {
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 8,
+                shadowColor: '#000',
+                shadowOpacity: 0.05,
+                shadowOffset: { width: 0, height: 2 },
+                shadowRadius: 4,
+                elevation: 2,
               }}
             >
               <Ionicons name="search" size={16} color="#6b7280" />
@@ -256,76 +320,185 @@ export default function ListScreen() {
           </View>
         }
         renderItem={({ item, index }) => {
-          const bg = PALETTE[index % PALETTE.length];
           const emoji = pickEmoji(item.store);
           const isPublic = (item.visibility ?? 'private') === 'public';
           const sc = item.saves_count ?? 0;
 
+          const theme = THEMES[index % THEMES.length];
+          const displayStore = (item.store ?? '').trim() || 'Unknown store';
+          const displayTitle = sanitizeTitle(item.title);
+
+          const expiresLabel = item.expires_at
+            ? `Expires ${new Date(item.expires_at).toLocaleDateString()}`
+            : null;
+
           return (
             <View
               style={{
-                backgroundColor: bg,
-                borderRadius: 16,
-                padding: 14,
-                borderWidth: 1,
-                borderColor: 'rgba(0,0,0,0.05)',
+                borderRadius: 22,
+                shadowColor: '#000',
+                shadowOpacity: 0.18,
+                shadowOffset: { width: 0, height: 4 },
+                shadowRadius: 8,
+                elevation: 5,
               }}
             >
-              {/* Header row: store + time + delete */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                <Text style={{ fontSize: 18, marginRight: 8 }}>{emoji}</Text>
-                <View style={{ flex: 1 }}>
-                  <Text style={{ fontWeight: '800', color: '#472b1a' }}>
-                    {item.store ?? 'Unknown store'}
-                  </Text>
-                  <Text style={{ color: '#7b6a5f', fontSize: 12 }}>{timeAgo(item.created_at)}</Text>
-                </View>
-
-                {/* Delete button (owner only; enforced by RLS too) */}
-                <TouchableOpacity
-                  onPress={() => askDelete(item.id)}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  backgroundColor: theme.body,
+                  borderRadius: 22,
+                  overflow: 'hidden',
+                  borderWidth: 1.5,
+                  borderColor: theme.border,
+                }}
+              >
+                {/* Left Stub */}
+                <View
                   style={{
-                    flexDirection: 'row',
+                    width: 78,
+                    backgroundColor: theme.stub,
                     alignItems: 'center',
-                    paddingVertical: 6,
-                    paddingHorizontal: 10,
-                    borderRadius: 999,
-                    backgroundColor: '#fff1f2',
-                    borderWidth: 1,
-                    borderColor: '#fecdd3',
+                    justifyContent: 'center',
+                    paddingVertical: 18,
+                    borderRightWidth: 1.5,
+                    borderRightColor: theme.border,
                   }}
                 >
-                  <Ionicons name="trash-outline" size={16} color="#b91c1c" />
-                </TouchableOpacity>
-              </View>
+                  <Text style={{ fontSize: 30, marginBottom: 4 }}>{emoji}</Text>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '700',
+                      color: isPublic ? '#15803d' : '#7c2d12',
+                    }}
+                  >
+                    {isPublic ? 'PUBLIC' : 'PRIVATE'}
+                  </Text>
+                </View>
 
-              {/* Title */}
-              {item.title ? (
-                <Text style={{ color: '#5b3b28', marginBottom: 6 }}>{item.title}</Text>
-              ) : null}
+                {/* Main Body */}
+                <View style={{ flex: 1, padding: 12 }}>
+                  {/* Top row: store + time + delete */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'flex-start',
+                      marginBottom: 4,
+                    }}
+                  >
+                    <View style={{ flex: 1, paddingRight: 6 }}>
+                      <Text
+                        style={{
+                          fontWeight: '900',
+                          color: '#3f1d0b',
+                          fontSize: 17,
+                          marginBottom: 2,
+                        }}
+                        numberOfLines={1}
+                      >
+                        {displayStore}
+                      </Text>
+                      <Text style={{ color: '#7b6b5f', fontSize: 11 }}>
+                        {timeAgo(item.created_at)}
+                      </Text>
+                    </View>
 
-              {/* Terms */}
-              {item.terms ? (
-                <Text numberOfLines={3} style={{ color: '#6d5243', lineHeight: 18 }}>
-                  {item.terms}
-                </Text>
-              ) : null}
+                    {/* Delete button */}
+                    <TouchableOpacity
+                      onPress={() => askDelete(item.id)}
+                      style={{
+                        paddingVertical: 4,
+                        paddingHorizontal: 8,
+                        borderRadius: 999,
+                        backgroundColor: '#fff1f2',
+                        borderWidth: 1,
+                        borderColor: '#fecdd3',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={14} color="#b91c1c" />
+                    </TouchableOpacity>
+                  </View>
 
-              {/* Chips */}
-              <View style={{ marginTop: 8, flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                <Chip text={isPublic ? 'Public' : 'Private'} />
-                {typeof sc === 'number' ? <Chip text={`${sc} saved`} /> : null}
-                {item.expires_at ? (
-                  <Chip text={`Expires: ${new Date(item.expires_at).toLocaleDateString()}`} />
-                ) : null}
-                {item.publication ? <Chip text={`Publication: ${item.publication}`} /> : null}
+                  {/* Title = main deal highlight (only if not junk) */}
+                  {displayTitle ? (
+                    <Text
+                      style={{
+                        color: '#b91c1c',
+                        marginBottom: 4,
+                        fontSize: 15,
+                        fontWeight: '800',
+                      }}
+                      numberOfLines={2}
+                    >
+                      {displayTitle}
+                    </Text>
+                  ) : null}
+
+                  {/* Terms snippet */}
+                  {item.terms ? (
+                    <Text
+                      numberOfLines={3}
+                      style={{
+                        color: '#6d5243',
+                        fontSize: 13,
+                        marginBottom: 6,
+                      }}
+                    >
+                      {item.terms}
+                    </Text>
+                  ) : null}
+
+                  {/* Dashed divider */}
+                  <View
+                    style={{
+                      borderBottomWidth: 1,
+                      borderStyle: 'dashed',
+                      borderColor: 'rgba(0,0,0,0.15)',
+                      marginVertical: 6,
+                    }}
+                  />
+
+                  {/* Bottom row: badges */}
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    {/* Left badges */}
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                        flex: 1,
+                      }}
+                    >
+                      {expiresLabel && <Badge text={expiresLabel} type="warning" />}
+                      {item.publication ? (
+                        <Badge text={item.publication} type="neutral" />
+                      ) : null}
+                    </View>
+
+                    {/* Saves pill */}
+                    <View style={{ marginLeft: 6 }}>
+                      <Badge text={`${sc} saved`} type="accent" />
+                    </View>
+                  </View>
+                </View>
               </View>
             </View>
           );
         }}
         ListEmptyComponent={
           <View style={{ padding: 16, alignItems: 'center' }}>
-            <Text style={{ fontSize: 16, color: '#5a4636', marginBottom: 6 }}>No coupons found</Text>
+            <Text style={{ fontSize: 16, color: '#5a4636', marginBottom: 6 }}>
+              No coupons found
+            </Text>
             <Text style={{ color: '#6b5b4d', textAlign: 'center' }}>
               Try clearing the search or filter above.
             </Text>
@@ -336,18 +509,39 @@ export default function ListScreen() {
   );
 }
 
-function Chip({ text }: { text: string }) {
+function Badge({
+  text,
+  type,
+}: {
+  text: string;
+  type?: 'warning' | 'accent' | 'neutral';
+}) {
   if (!text) return null;
+
+  let bg = 'rgba(0,0,0,0.06)';
+  let color = '#4b3a2e';
+
+  if (type === 'warning') {
+    bg = '#fef3c7';
+    color = '#92400e';
+  } else if (type === 'accent') {
+    bg = PINK;
+    color = '#9f1239';
+  } else if (type === 'neutral') {
+    bg = '#e5e7eb';
+    color = '#374151';
+  }
+
   return (
     <View
       style={{
-        backgroundColor: 'rgba(0,0,0,0.08)',
-        paddingHorizontal: 10,
-        paddingVertical: 5,
+        backgroundColor: bg,
+        paddingHorizontal: 9,
+        paddingVertical: 4,
         borderRadius: 999,
       }}
     >
-      <Text style={{ fontSize: 12, color: '#4b3a2e' }}>{text}</Text>
+      <Text style={{ fontSize: 11, fontWeight: '600', color }}>{text}</Text>
     </View>
   );
 }
@@ -369,11 +563,11 @@ function FilterChip({
         paddingVertical: 8,
         borderRadius: 999,
         borderWidth: 1,
-        backgroundColor: active ? '#2563eb' : '#fff',
-        borderColor: active ? '#2563eb' : '#f2caa1',
+        backgroundColor: active ? PINK : '#fff',
+        borderColor: active ? PINK : '#f2caa1',
       }}
     >
-      <Text style={{ color: active ? '#fff' : '#5a4636', fontWeight: '700' }}>{text}</Text>
+      <Text style={{ color: '#5a4636', fontWeight: '700' }}>{text}</Text>
     </TouchableOpacity>
   );
 }

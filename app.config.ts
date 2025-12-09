@@ -5,6 +5,7 @@ export default {
     name: 'Snapigo',
     slug: 'snapigo',
     scheme: 'snapigo',
+    icon: "./assets/notification.png",
     plugins: [
       './plugins/with-apple-vision-ocr',
       'expo-location',
@@ -28,7 +29,9 @@ export default {
         'ACCESS_COARSE_LOCATION',
         'ACCESS_BACKGROUND_LOCATION',
         'FOREGROUND_SERVICE'
-      ]
+      ],
+      softwareKeyboardLayoutMode: 'resize'
+
     },
     extra: {
       supabaseUrl: process.env.EXPO_PUBLIC_SUPABASE_URL,

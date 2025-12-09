@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import AuthGate from '../../components/AuthGate';
+import "@/lib/geo";
 
 export default function ProtectedLayout() {
   return (

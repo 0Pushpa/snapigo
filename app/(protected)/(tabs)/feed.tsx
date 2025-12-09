@@ -1,5 +1,6 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Location from 'expo-location';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -18,7 +19,6 @@ import { deleteCoupon } from '../../../lib/coupons';
 import { listSavedCoupons, saveCoupon, unsaveCoupon } from '../../../lib/saves';
 import { supabase } from '../../../lib/supabase';
 
-// ---------- Types ----------
 type Visibility = 'private' | 'public';
 type Category = 'food' | 'retail' | 'grocery' | 'other';
 
@@ -35,24 +35,26 @@ type FeedCoupon = {
   visibility: Visibility;
   category?: Category | null;
   saves_count?: number | null;
+  attrs?: any | null; // geo + extra attrs
 };
 
 // ---------- UI helpers ----------
 const PALETTE = ['#EAF4FF', '#FFF0E6', '#E9FFFA', '#FFF8D9'];
+const PINK = '#FFD1E0';
 
 const CATEGORY_PILLS: Array<{
   key: 'all' | Category;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
 }> = [
-  { key: 'all',     label: 'All',     icon: 'apps-outline' },
-  { key: 'food',    label: 'Food',    icon: 'fast-food-outline' },
-  { key: 'retail',  label: 'Retail',  icon: 'storefront-outline' },
+  { key: 'all', label: 'All', icon: 'apps-outline' },
+  { key: 'food', label: 'Food', icon: 'fast-food-outline' },
+  { key: 'retail', label: 'Retail', icon: 'storefront-outline' },
   { key: 'grocery', label: 'Grocery', icon: 'cart-outline' },
-  { key: 'other',   label: 'Other',   icon: 'pricetags-outline' },
+  { key: 'other', label: 'Other', icon: 'pricetags-outline' },
 ];
 
-const INDEPENDENT = '__INDEPENDENT__'; // token for NULL publications
+const INDEPENDENT = '__INDEPENDENT__';
 const escLike = (s: string) => s.replace(/[%_]/g, '\\$&');
 
 // Icons instead of emoji (more reliable across platforms)
@@ -76,6 +78,7 @@ function timeAgo(iso?: string | null) {
   const d = Math.floor(h / 24);
   return `${d}d ago`;
 }
+
 function expiryText(iso?: string | null) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -85,21 +88,100 @@ function expiryText(iso?: string | null) {
   const left = daysLeft >= 0 ? `${daysLeft}d left` : `expired`;
   return `Expires ${date} • ${left}`;
 }
+
 function catLabel(cat: Category) {
   switch (cat) {
-    case 'food': return 'Food';
-    case 'retail': return 'Retail';
-    case 'grocery': return 'Grocery';
-    default: return 'Other';
+    case 'food':
+      return 'Food';
+    case 'retail':
+      return 'Retail';
+    case 'grocery':
+      return 'Grocery';
+    default:
+      return 'Other';
   }
 }
+
 function catIcon(cat: Category): keyof typeof Ionicons.glyphMap {
   switch (cat) {
-    case 'food': return 'fast-food-outline';
-    case 'retail': return 'storefront-outline';
-    case 'grocery': return 'cart-outline';
-    default: return 'pricetags-outline';
+    case 'food':
+      return 'fast-food-outline';
+    case 'retail':
+      return 'storefront-outline';
+    case 'grocery':
+      return 'cart-outline';
+    default:
+      return 'pricetags-outline';
   }
+}
+
+/**
+ * Clean up title so we don't show ugly / wrong discount text.
+ * - remove "undefined"/"null"
+ * - if it looks like a discount (%, $, "off"), only keep it when the same number
+ *   also appears somewhere in the terms.
+ *   → avoids fake like "$25 off" when terms don't mention 25 at all.
+ */
+function sanitizeTitle(title?: string | null, terms?: string | null) {
+  if (!title) return '';
+
+  // Remove obvious junk
+  let t = title.replace(/undefined/gi, '').replace(/null/gi, '').trim();
+  if (!t) return '';
+
+  const lower = t.toLowerCase();
+
+  // If no discount language, just return cleaned title as-is
+  const hasOff = lower.includes('off');
+  const hasPct = lower.includes('%');
+  const hasDollar = lower.includes('$');
+  const looksLikeDiscount = hasOff || hasPct || hasDollar;
+
+  if (!looksLikeDiscount) {
+    return t;
+  }
+
+  // If it "looks" like discount but has no digits at all → junk
+  const numMatches = t.match(/\d+/g) ?? [];
+  if (numMatches.length === 0) {
+    return '';
+  }
+
+  // If there are digits AND discount words,
+  // require that at least one of those numbers appears in terms text.
+  if (terms) {
+    const termsLower = terms.toLowerCase();
+    const hasAnyNumberInTerms = numMatches.some((n) => termsLower.includes(n));
+    if (!hasAnyNumberInTerms) {
+      // Numbers like "25" only appear in title, not in actual coupon text → hide.
+      return '';
+    }
+  }
+
+  return t;
+}
+
+// ---------- Distance helpers ----------
+function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const toRad = (v: number) => (v * Math.PI) / 180;
+  const R = 6371e3;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function getCouponCoords(c: FeedCoupon): { lat: number; lng: number } | null {
+  const geo = c.attrs?.geo;
+  if (geo?.lat != null && geo?.lng != null) {
+    return { lat: geo.lat, lng: geo.lng };
+  }
+  if (c.attrs?.lat != null && c.attrs?.lng != null) {
+    return { lat: c.attrs.lat, lng: c.attrs.lng };
+  }
+  return null;
 }
 
 // ---------- Screen ----------
@@ -121,45 +203,74 @@ export default function FeedScreen() {
   const searchRef = useRef<TextInput>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  type PubOpt = { label: string; slug: string } | { label: typeof INDEPENDENT; slug: typeof INDEPENDENT };
+  type PubOpt =
+    | { label: string; slug: string }
+    | { label: typeof INDEPENDENT; slug: typeof INDEPENDENT };
   const [pubOptions, setPubOptions] = useState<PubOpt[]>([]);
-  const [pubFilter, setPubFilter] = useState<PubOpt['slug'] | null>(null); // null => All
+  const [pubFilter, setPubFilter] = useState<PubOpt['slug'] | null>(null);
   const [pubOpen, setPubOpen] = useState(false);
 
   const [myUid, setMyUid] = useState<string | null>(null);
   const [savedSet, setSavedSet] = useState<Set<string>>(new Set());
 
+  // Near me state
+  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [nearMeOnly, setNearMeOnly] = useState(false);
+  const [nearCount, setNearCount] = useState<number | null>(null); // count badge
+
   // race guard
   const querySeqRef = useRef(0);
   const [paging, setPaging] = useState(false);
+
+  // radius
+  const NEAR_RADIUS_M = 2000;
 
   // debounce typing
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => setDebouncedSearch(search.trim()), 250);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [search]);
 
-  // run once per focus
   useFocusEffect(
     useCallback(() => {
       (async () => {
         const { data } = await supabase.auth.getSession();
         setMyUid(data.session?.user?.id ?? null);
+
+        try {
+          const perm = await Location.requestForegroundPermissionsAsync();
+          if (perm.status === 'granted') {
+            const pos = await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            setMyLocation({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+            });
+          } else {
+            setMyLocation(null);
+          }
+        } catch (e: any) {
+          console.warn('[Feed] location error', e?.message);
+          setMyLocation(null);
+        }
       })();
+
       initialLoad();
       return () => {};
     }, [])
   );
 
-  // Also react to search once debounced (state-driven reloads)
   useEffect(() => {
     if (!loading) resetAndLoad();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedSearch]);
 
   function bumpSeq() {
-    querySeqRef.current += 1; // cancels in-flight responses
+    querySeqRef.current += 1;
     return querySeqRef.current;
   }
 
@@ -169,15 +280,18 @@ export default function FeedScreen() {
     setHasMore(true);
   }
 
-  // Use when we already know the new filters but state might not be committed yet.
-  async function immediateReload(opts?: { pub?: string | null; cat?: 'all' | Category; term?: string }) {
+  async function immediateReload(opts?: {
+    pub?: string | null;
+    cat?: 'all' | Category;
+    term?: string;
+  }) {
     bumpSeq();
     resetListForNewQuery();
     await loadPage(0, true, opts);
   }
 
   function resetAndLoad() {
-    immediateReload(); // uses current state
+    immediateReload();
   }
 
   async function initialLoad() {
@@ -199,7 +313,6 @@ export default function FeedScreen() {
         .limit(2000);
 
       if (error) {
-        // fallback if column absent
         setSupportsPubSlug(false);
         const alt = await supabase
           .from('coupons')
@@ -213,8 +326,8 @@ export default function FeedScreen() {
           .map((r: any) => (r.publication ?? '').trim())
           .filter(Boolean) as string[];
         const uniqLabels = Array.from(new Set(labels));
-        // quick null check
-        const { data: nullCheck, error: nullErr } = await supabase
+
+        const { error: nullErr } = await supabase
           .from('coupons')
           .select('id', { head: true })
           .eq('visibility', 'public' as Visibility)
@@ -223,9 +336,10 @@ export default function FeedScreen() {
           // ignore
         }
         const opts: PubOpt[] = [];
-        // adding Independent on top is harmless even if none exist
         opts.push({ label: INDEPENDENT, slug: INDEPENDENT });
-        uniqLabels.forEach(l => opts.push({ label: l, slug: l.toLowerCase().trim().replace(/\s+/g, ' ') }));
+        uniqLabels.forEach((l) =>
+          opts.push({ label: l, slug: l.toLowerCase().trim().replace(/\s+/g, ' ') })
+        );
         setPubOptions(opts);
         return;
       }
@@ -237,8 +351,14 @@ export default function FeedScreen() {
       (data ?? []).forEach((row: any) => {
         const label: string | null = row.publication;
         const slug: string | null = row.publication_slug;
-        if (label == null || !slug) { hasNull = true; return; }
-        if (!seen.has(slug)) { seen.add(slug); opts.push({ label, slug }); }
+        if (label == null || !slug) {
+          hasNull = true;
+          return;
+        }
+        if (!seen.has(slug)) {
+          seen.add(slug);
+          opts.push({ label, slug });
+        }
       });
 
       if (hasNull) opts.unshift({ label: INDEPENDENT, slug: INDEPENDENT });
@@ -263,7 +383,6 @@ export default function FeedScreen() {
     }
   }
 
-  // NOTE: overrides lets us query with freshly chosen values immediately
   async function loadPage(
     pageIndex: number,
     replace = false,
@@ -275,63 +394,67 @@ export default function FeedScreen() {
 
     const pageSize = 20;
 
-    // resolve filters (overrides > state)
     const effPub = overrides?.pub ?? pubFilter;
     const effCat = overrides?.cat ?? activeCat;
     const effTerm = overrides?.term ?? debouncedSearch;
 
     let q = supabase
       .from('coupons')
-      .select('id, owner_id, store, title, terms, publication, publication_slug, expires_at, created_at, visibility, category, saves_count')
+      .select(
+        'id, owner_id, store, title, terms, publication, publication_slug, expires_at, created_at, visibility, category, saves_count, attrs'
+      )
       .eq('visibility', 'public' as Visibility);
 
-    // publication filter
     if (effPub) {
       if (effPub === INDEPENDENT) {
         q = q.is('publication', null);
       } else if (supportsPubSlug) {
         q = q.eq('publication_slug', effPub);
       } else {
-        const label = (pubOptions.find(o => o.slug === effPub) as any)?.label;
+        const label = (pubOptions.find((o) => o.slug === effPub) as any)?.label;
         if (typeof label === 'string' && label.length) q = q.eq('publication', label);
       }
     }
 
-    // category filter
     if (effCat !== 'all' && supportsCategory) {
       q = q.eq('category', effCat as Category);
     }
 
-    // text search
     if (effTerm && effTerm.length > 0) {
       const like = `%${escLike(effTerm)}%`;
       // @ts-ignore Supabase .or string form
       q = q.or(`store.ilike.${like},title.ilike.${like},publication.ilike.${like}`);
     }
 
-    q = q.order('created_at', { ascending: false })
-         .range(pageIndex * pageSize, pageIndex * pageSize + pageSize - 1);
+    q = q
+      .order('created_at', { ascending: false })
+      .range(pageIndex * pageSize, pageIndex * pageSize + pageSize - 1);
 
     try {
       const { data, error } = await q;
       if (error) {
-        if (String(error.message || '').includes('column') && String(error.message).includes('category')) {
+        if (
+          String(error.message || '').includes('column') &&
+          String(error.message).includes('category')
+        ) {
           if (supportsCategory) {
             setSupportsCategory(false);
             setPaging(false);
-            // retry quickly with same overrides
             return loadPage(pageIndex, replace, overrides);
           }
         }
         throw error;
       }
-      // cancel stale response
-      if (mySeq !== querySeqRef.current) { setPaging(false); return; }
+
+      if (mySeq !== querySeqRef.current) {
+        setPaging(false);
+        return;
+      }
 
       const rows = (data ?? []) as FeedCoupon[];
       setHasMore(rows.length === pageSize);
       setPage(pageIndex);
-      setItems(prev => (replace ? rows : prev.concat(rows)));
+      setItems((prev) => (replace ? rows : prev.concat(rows)));
     } catch (e: any) {
       console.warn('[Feed] load error', e?.message);
     } finally {
@@ -356,6 +479,59 @@ export default function FeedScreen() {
     [items.length]
   );
 
+  // Recompute how many coupons are inside the radius for the badge
+  useEffect(() => {
+    if (!myLocation) {
+      setNearCount(null);
+      return;
+    }
+
+    const nearby = items
+      .map((c) => {
+        const coords = getCouponCoords(c);
+        if (!coords) return null;
+        const dist = distanceMeters(
+          myLocation.lat,
+          myLocation.lng,
+          coords.lat,
+          coords.lng
+        );
+        return dist <= NEAR_RADIUS_M ? dist : null;
+      })
+      .filter((d) => d != null);
+
+    setNearCount(nearby.length);
+  }, [items, myLocation, NEAR_RADIUS_M]);
+
+  // Which items show in the list
+  const visibleItems = useMemo(() => {
+    if (!nearMeOnly) return items;
+
+    if (!myLocation) return [];
+
+    const enriched = items
+      .map((c) => {
+        const coords = getCouponCoords(c);
+        if (!coords) return { c, dist: Infinity };
+        const dist = distanceMeters(
+          myLocation.lat,
+          myLocation.lng,
+          coords.lat,
+          coords.lng
+        );
+        return { c, dist };
+      })
+      .filter((x) => x.dist < Infinity);
+
+    if (!enriched.length) return [];
+
+    const nearby = enriched.filter((x) => x.dist <= NEAR_RADIUS_M);
+    if (!nearby.length) return [];
+
+    nearby.sort((a, b) => a.dist - b.dist);
+    return nearby.map((x) => x.c);
+  }, [items, nearMeOnly, myLocation, NEAR_RADIUS_M]);
+
   function toggleSave(couponId: string) {
     return async () => {
       try {
@@ -365,16 +541,22 @@ export default function FeedScreen() {
           const next = new Set(savedSet);
           next.delete(couponId);
           setSavedSet(next);
-          setItems(prev =>
-            prev.map(c => (c.id === couponId ? { ...c, saves_count: Math.max((c.saves_count || 1) - 1, 0) } : c))
+          setItems((prev) =>
+            prev.map((c) =>
+              c.id === couponId
+                ? { ...c, saves_count: Math.max((c.saves_count || 1) - 1, 0) }
+                : c
+            )
           );
         } else {
           await saveCoupon(couponId);
           const next = new Set(savedSet);
           next.add(couponId);
           setSavedSet(next);
-          setItems(prev =>
-            prev.map(c => (c.id === couponId ? { ...c, saves_count: (c.saves_count || 0) + 1 } : c))
+          setItems((prev) =>
+            prev.map((c) =>
+              c.id === couponId ? { ...c, saves_count: (c.saves_count || 0) + 1 } : c
+            )
           );
         }
       } catch (e: any) {
@@ -400,7 +582,7 @@ export default function FeedScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
-            setItems(prev => prev.filter(c => c.id !== couponId));
+            setItems((prev) => prev.filter((c) => c.id !== couponId));
             await deleteCoupon(couponId);
           } catch (e: any) {
             await initialLoad();
@@ -411,10 +593,16 @@ export default function FeedScreen() {
     ]);
   }
 
-  // ---------- Render ----------
   if (loading) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ffebd5' }}>
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#ffebd5',
+        }}
+      >
         <ActivityIndicator />
       </View>
     );
@@ -460,10 +648,16 @@ export default function FeedScreen() {
               {pubFilter === INDEPENDENT
                 ? 'Independent'
                 : pubFilter
-                  ? (pubOptions.find(o => o.slug === pubFilter) as any)?.label ?? 'Publication'
-                  : 'All Publications'}
+                ? (pubOptions.find((o) => o.slug === pubFilter) as any)?.label ??
+                  'Publication'
+                : 'All Publications'}
             </Text>
-            <Ionicons name="chevron-down" size={16} color="#374151" style={{ marginLeft: 6 }} />
+            <Ionicons
+              name="chevron-down"
+              size={16}
+              color="#374151"
+              style={{ marginLeft: 6 }}
+            />
           </TouchableOpacity>
 
           <Ionicons name="search-outline" size={18} color="#6b5b4d" />
@@ -485,11 +679,22 @@ export default function FeedScreen() {
       </View>
 
       {/* Publication modal */}
-      <Modal visible={pubOpen} transparent animationType="fade" onRequestClose={() => setPubOpen(false)}>
+      <Modal
+        visible={pubOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPubOpen(false)}
+      >
         <TouchableOpacity
           activeOpacity={1}
           onPress={() => setPubOpen(false)}
-          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          style={{
+            flex: 1,
+            backgroundColor: 'rgba(0,0,0,0.35)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+          }}
         >
           <View
             style={{
@@ -510,7 +715,6 @@ export default function FeedScreen() {
                 onPress={() => {
                   setPubOpen(false);
                   setPubFilter(null);
-                  // reload immediately with override (pub=null)
                   immediateReload({ pub: null });
                 }}
               />
@@ -521,8 +725,7 @@ export default function FeedScreen() {
                   active={pubFilter === opt.slug}
                   onPress={() => {
                     setPubOpen(false);
-                    setPubFilter(opt.slug); // state
-                    // reload now using override to guarantee the fresh value
+                    setPubFilter(opt.slug);
                     immediateReload({ pub: opt.slug });
                   }}
                 />
@@ -532,7 +735,7 @@ export default function FeedScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Categories */}
+      {/* Categories + Near Me */}
       <View style={{ paddingHorizontal: 12, marginBottom: 8 }}>
         <FlatList
           data={CATEGORY_PILLS}
@@ -546,7 +749,6 @@ export default function FeedScreen() {
               <TouchableOpacity
                 onPress={() => {
                   setActiveCat(item.key as any);
-                  // reload immediately with override cat
                   immediateReload({ cat: item.key as any });
                 }}
                 style={{
@@ -560,27 +762,108 @@ export default function FeedScreen() {
                   backgroundColor: active ? '#2563eb' : '#fff',
                 }}
               >
-                <Ionicons name={item.icon} size={16} color={active ? '#fff' : '#5a4636'} style={{ marginRight: 6 }} />
-                <Text style={{ color: active ? '#fff' : '#5a4636', fontWeight: '700' }}>{item.label}</Text>
+                <Ionicons
+                  name={item.icon}
+                  size={16}
+                  color={active ? '#fff' : '#5a4636'}
+                  style={{ marginRight: 6 }}
+                />
+                <Text
+                  style={{
+                    color: active ? '#fff' : '#5a4636',
+                    fontWeight: '700',
+                  }}
+                >
+                  {item.label}
+                </Text>
               </TouchableOpacity>
             );
           }}
         />
         {!supportsCategory ? (
           <Text style={{ marginTop: 6, color: '#9ca3af', fontSize: 12 }}>
-            (Category filter disabled—add a <Text style={{ fontWeight: '700' }}>category</Text> column in <Text style={{ fontWeight: '700' }}>public.coupons</Text> to enable.)
+            (Category filter disabled—add a{' '}
+            <Text style={{ fontWeight: '700' }}>category</Text> column in{' '}
+            <Text style={{ fontWeight: '700' }}>public.coupons</Text> to enable.)
           </Text>
         ) : null}
+
+        {/* Coupons Near Me pill with count only when active */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            marginTop: 8,
+            paddingHorizontal: 4,
+          }}
+        >
+          <TouchableOpacity
+            onPress={() => setNearMeOnly((v) => !v)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+              borderRadius: 999,
+              borderWidth: 1,
+              borderColor: nearMeOnly ? '#2563eb' : '#f2caa1',
+              backgroundColor: nearMeOnly ? '#2563eb' : '#fff',
+            }}
+          >
+            <Ionicons
+              name="location-outline"
+              size={16}
+              color={nearMeOnly ? '#fff' : '#5a4636'}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              style={{
+                color: nearMeOnly ? '#fff' : '#5a4636',
+                fontWeight: '700',
+              }}
+            >
+              {nearMeOnly ? 'Showing coupons near you' : 'Coupons near me'}
+            </Text>
+
+            {/* 🔴 Show red count badge ONLY when active */}
+            {nearMeOnly && nearCount !== null && (
+              <View
+                style={{
+                  marginLeft: 8,
+                  minWidth: 20,
+                  paddingHorizontal: 6,
+                  paddingVertical: 2,
+                  borderRadius: 999,
+                  backgroundColor: '#fee2e2', // light red
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    fontWeight: '700',
+                    color: '#b91c1c', // red text
+                  }}
+                >
+                  {nearCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Feed list */}
       <FlatList
-        data={items}
+        data={visibleItems}
         keyExtractor={(it) => it.id}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
         onEndReachedThreshold={0.3}
         onEndReached={onEndReached}
-        contentContainerStyle={{ padding: 16, paddingBottom: 40, gap: 12 }}
+        contentContainerStyle={{ padding: 12, paddingBottom: 32, gap: 8 }}
         renderItem={({ item, index }) => {
           const bg = PALETTE[index % PALETTE.length];
           const icon = pickIconName(item.store);
@@ -588,67 +871,151 @@ export default function FeedScreen() {
           const saves = item.saves_count ?? 0;
           const cat = (item.category || 'other') as Category;
           const isOwner = myUid && item.owner_id === myUid;
+          const displayTitle = sanitizeTitle(item.title, item.terms);
 
           return (
             <View
               style={{
                 backgroundColor: bg,
-                borderRadius: 18,
-                padding: 14,
+                borderRadius: 14,
+                padding: 10,
                 borderWidth: 1,
-                borderColor: 'rgba(0,0,0,0.05)',
+                borderColor: '#f97316',
+                shadowColor: '#000',
+                shadowOpacity: 0.08,
+                shadowOffset: { width: 0, height: 2 },
+                shadowRadius: 3,
+                elevation: 2,
+                marginVertical: 2,
               }}
             >
               {/* top row */}
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name={icon} size={18} color="#472b1a" style={{ marginRight: 8 }} />
-                  <Text style={{ fontWeight: '800', color: '#472b1a' }}>
-                    {item.store ?? 'Unknown store'}
-                  </Text>
+              <View
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  marginBottom: 4,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 999,
+                      backgroundColor: 'rgba(0,0,0,0.05)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: 8,
+                    }}
+                  >
+                    <Ionicons name={icon} size={16} color="#472b1a" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{ fontWeight: '700', color: '#472b1a', fontSize: 13 }}
+                      numberOfLines={1}
+                    >
+                      {item.store ?? 'Unknown store'}
+                    </Text>
+                    <Text style={{ color: '#7b6a5f', fontSize: 10 }}>
+                      {timeAgo(item.created_at)}
+                    </Text>
+                  </View>
                 </View>
-
-                <Text style={{ color: '#7b6a5f', fontSize: 12 }}>{timeAgo(item.created_at)}</Text>
               </View>
 
-              {/* title */}
-              {item.title ? (
-                <Text style={{ color: '#5b3b28', marginBottom: 6, fontSize: 16 }}>{item.title}</Text>
+              {/* title (deal highlight) */}
+              {displayTitle ? (
+                <Text
+                  style={{
+                    color: '#b91c1c',
+                    marginBottom: 3,
+                    fontSize: 13,
+                    fontWeight: '700',
+                  }}
+                  numberOfLines={2}
+                >
+                  {displayTitle}
+                </Text>
               ) : null}
 
               {/* terms */}
               {item.terms ? (
-                <Text numberOfLines={3} style={{ color: '#6d5243', lineHeight: 18, marginBottom: 8 }}>
+                <Text
+                  numberOfLines={3}
+                  style={{
+                    color: '#6d5243',
+                    lineHeight: 14,
+                    marginBottom: 4,
+                    fontSize: 11,
+                  }}
+                >
                   {item.terms}
                 </Text>
               ) : null}
 
+              {/* divider */}
+              <View
+                style={{
+                  borderBottomWidth: 1,
+                  borderStyle: 'dashed',
+                  borderColor: 'rgba(0,0,0,0.16)',
+                  marginVertical: 4,
+                }}
+              />
+
               {/* chips */}
-              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-                <Chip icon="earth" text="Public" />
-                <Chip icon={catIcon(cat)} text={catLabel(cat)} />
-                {item.expires_at ? <Chip icon="time-outline" text={expiryText(item.expires_at) ?? ''} /> : null}
-                <Chip icon="pricetags-outline" text={`${saves} saved`} />
-                {item.publication ? <Chip icon="newspaper-outline" text={`Publication: ${item.publication}`} /> : null}
+              <View
+                style={{
+                  flexDirection: 'row',
+                  gap: 6,
+                  flexWrap: 'wrap',
+                  marginBottom: 6,
+                }}
+              >
+                {/* no “Public” chip here – everything in Feed is public */}
+                <Chip icon={catIcon(cat)} text={catLabel(cat)} variant="neutral" />
+                {item.expires_at ? (
+                  <Chip
+                    icon="time-outline"
+                    text={expiryText(item.expires_at) ?? ''}
+                    variant="warning"
+                  />
+                ) : null}
+                <Chip
+                  icon="pricetags-outline"
+                  text={`${saves} saved`}
+                  variant="accent"
+                />
+                {item.publication ? (
+                  <Chip
+                    icon="newspaper-outline"
+                    text={item.publication}
+                    variant="neutral"
+                  />
+                ) : null}
               </View>
 
               {/* actions */}
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+              <View
+                style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 6 }}
+              >
                 {isOwner ? (
                   <TouchableOpacity
                     onPress={() => askDelete(item.id)}
                     style={{
                       flexDirection: 'row',
                       alignItems: 'center',
-                      paddingVertical: 8,
-                      paddingHorizontal: 14,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
                       borderRadius: 999,
                       backgroundColor: '#fff1f2',
                       borderWidth: 1,
                       borderColor: '#fecdd3',
                     }}
                   >
-                    <Ionicons name="trash-outline" size={18} color="#b91c1c" />
+                    <Ionicons name="trash-outline" size={16} color="#b91c1c" />
                   </TouchableOpacity>
                 ) : null}
 
@@ -657,8 +1024,8 @@ export default function FeedScreen() {
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    paddingVertical: 8,
-                    paddingHorizontal: 14,
+                    paddingVertical: 6,
+                    paddingHorizontal: 12,
                     borderRadius: 999,
                     backgroundColor: saved ? '#2563eb' : '#ffffff',
                     borderWidth: 1,
@@ -667,11 +1034,17 @@ export default function FeedScreen() {
                 >
                   <MaterialCommunityIcons
                     name={saved ? 'bookmark' : 'bookmark-outline'}
-                    size={18}
+                    size={16}
                     color={saved ? '#fff' : '#5a4636'}
-                    style={{ marginRight: 6 }}
+                    style={{ marginRight: 4 }}
                   />
-                  <Text style={{ color: saved ? '#fff' : '#5a4636', fontWeight: '700' }}>
+                  <Text
+                    style={{
+                      color: saved ? '#fff' : '#5a4636',
+                      fontWeight: '700',
+                      fontSize: 12,
+                    }}
+                  >
                     {saved ? 'Saved' : 'Save'}
                   </Text>
                 </TouchableOpacity>
@@ -681,9 +1054,13 @@ export default function FeedScreen() {
         }}
         ListEmptyComponent={
           <View style={{ padding: 18, alignItems: 'center' }}>
-            <Text style={{ fontSize: 16, color: '#5a4636', marginBottom: 6 }}>No public coupons yet</Text>
+            <Text style={{ fontSize: 16, color: '#5a4636', marginBottom: 6 }}>
+              {nearMeOnly ? 'No coupons near you yet' : 'No public coupons yet'}
+            </Text>
             <Text style={{ color: '#6b5b4d', textAlign: 'center' }}>
-              Switch to <Text style={{ fontWeight: '700' }}>Scan</Text> and post one as <Text style={{ fontWeight: '700' }}>Public</Text>.
+              {nearMeOnly
+                ? 'Try turning off "Coupons near me" or scan some coupons with addresses so we can locate them.'
+                : 'Switch to Scan and post one as Public.'}
             </Text>
           </View>
         }
@@ -693,21 +1070,44 @@ export default function FeedScreen() {
 }
 
 // ---------- Small components ----------
-function Chip({ icon, text }: { icon: keyof typeof Ionicons.glyphMap; text: string }) {
+function Chip({
+  icon,
+  text,
+  variant = 'neutral',
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  text: string;
+  variant?: 'warning' | 'accent' | 'neutral';
+}) {
   if (!text) return null;
+
+  let bg = 'rgba(0,0,0,0.06)';
+  let color = '#4b3a2e';
+
+  if (variant === 'warning') {
+    bg = '#fef3c7';
+    color = '#92400e';
+  } else if (variant === 'accent') {
+    bg = PINK;
+    color = '#9f1239';
+  } else if (variant === 'neutral') {
+    bg = '#e5e7eb';
+    color = '#374151';
+  }
+
   return (
     <View
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(0,0,0,0.08)',
-        paddingHorizontal: 10,
-        paddingVertical: 5,
+        backgroundColor: bg,
+        paddingHorizontal: 8,
+        paddingVertical: 3,
         borderRadius: 999,
       }}
     >
-      <Ionicons name={icon} size={14} color="#4b3a2e" style={{ marginRight: 6 }} />
-      <Text style={{ fontSize: 12, color: '#4b3a2e' }}>{text}</Text>
+      <Ionicons name={icon} size={12} color={color} style={{ marginRight: 4 }} />
+      <Text style={{ fontSize: 10, color, fontWeight: '600' }}>{text}</Text>
     </View>
   );
 }

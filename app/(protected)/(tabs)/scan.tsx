@@ -18,30 +18,171 @@ import {
   View,
 } from 'react-native';
 
-import { extractCouponFields, extractStoreAndAddressFromBlocks, type ParsedCoupon } from '../../../lib/coupon-parse';
+import {
+  extractCouponFields,
+  extractStoreAndAddressFromBlocks,
+  type ParsedCoupon,
+} from '../../../lib/coupon-parse';
 import { registerFromSupabase } from '../../../lib/geo';
 import { parseCouponBasics, prepareForOcr, runOcr } from '../../../lib/ocr';
 import { supabase } from '../../../lib/supabase';
 
-// Import your API (assumes you added `publication` support there)
+// Import your API
 import { addCoupon, type Category, type Visibility } from '../../../lib/coupons';
 
 type ModeType = '' | 'dine-in' | 'pickup';
 
+// ---------- small helpers ----------
+
+// normalize for substring checks
+const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Remove UI noise + random junk from OCR before parsing
+function cleanOcrText(raw: string): string {
+  const lines = raw.split(/\r?\n/);
+  const keep: string[] = [];
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Drop your UI header / labels from the app chrome
+    if (/^visibility:/i.test(line)) continue;
+    if (/my list/i.test(line)) continue;
+    if (/public\s*\(feed\)/i.test(line)) continue;
+
+    // Drop terminal / simulator junk
+    if (/^esc$/i.test(line)) continue;
+    if (/^0:$/.test(line)) continue;
+    if (/^F\d+$/i.test(line)) continue;
+
+    // Drop single-letter-ish lines with no digits (like "M", "v")
+    const letters = line.replace(/[^A-Za-z]/g, '');
+    const hasDigits = /\d/.test(line);
+    if (letters.length < 2 && !hasDigits) continue;
+
+    keep.push(rawLine);
+  }
+
+  return keep.join('\n');
+}
+
+// Last-chance store fallback just from text lines
+function fallbackStoreFromText(raw: string): string {
+  const lines = raw
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  let best = '';
+  let bestScore = -999;
+
+  for (const line of lines) {
+    if (!/[A-Za-z]/.test(line)) continue; // need letters
+
+    // ignore typical offer / terms / expiry lines
+    if (
+      /(valid|coupon|expires|expiration|discount|percent|%|off|save|only|terms|conditions|present|offer|with purchase)/i.test(
+        line
+      )
+    ) {
+      continue;
+    }
+
+    const letters = line.replace(/[^A-Za-z]/g, '');
+    // completely ignore super-short lines like "M" or "v"
+    if (letters.length < 3) continue;
+
+    let score = 0;
+
+    const caps = letters.replace(/[^A-Z]/g, '').length;
+    const capsRatio = letters.length ? caps / letters.length : 0;
+
+    const hasDigits = /\d/.test(line);
+    if (!hasDigits) score += 1.0; // store names usually no digits
+    score += capsRatio; // more caps → heading/logo-ish
+
+    const len = line.length;
+    if (len <= 30) score += 0.5;
+    if (len > 40) score -= 0.5;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = line;
+    }
+  }
+
+  return best;
+}
+
+// If store is like "MEIJER" and the next line is "MARKET", combine → "Meijer Market"
+function maybeExtendStoreWithNextLine(store: string, cleanedText: string): string {
+  if (!store) return store;
+
+  const lines = cleanedText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  const idx = lines.findIndex((l) => l.toLowerCase() === store.toLowerCase());
+  if (idx < 0 || idx + 1 >= lines.length) return store;
+
+  const next = lines[idx + 1];
+  if (!next) return store;
+
+  // next line must be short, all letters, mostly caps (like "MARKET")
+  const letters = next.replace(/[^A-Za-z]/g, '');
+  if (!letters || letters.length > 12) return store;
+  const capsRatio =
+    letters.length === 0
+      ? 0
+      : letters.replace(/[^A-Z]/g, '').length / letters.length;
+  if (capsRatio < 0.7) return store;
+
+  return `${store} ${next}`
+    .toLowerCase()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ---------- known brands & categories ----------
+
 const KNOWN_BRANDS = [
-  'Starbucks','Subway','Chipotle','Dunkin','Panera',"Wendy's","Domino's",'Target','Walmart',
-  'Kroger','Meijer','Aldi','Costco',"Sam's Club",'CVS','Walgreens','Best Buy','Taco Bell','Burger King',
+  "McDonald's",
+  'McDonalds',
+  "Mc Donald's",
+  'Mc Donalds',
+  'Starbucks',
+  'Subway',
+  'The Melting Pot',
+  'Melting Pot',
+  'Chipotle',
+  'Dunkin',
+  'Panera',
+  "Wendy's",
+  "Domino's",
+  'Target',
+  'Walmart',
+  'Kroger',
+  'Meijer',
+  'Aldi',
+  'Costco',
+  "Sam's Club",
+  'CVS',
+  'Walgreens',
+  'Best Buy',
+  'Taco Bell',
+  'Burger King',
 ];
 
 const CATEGORY_OPTIONS: { value: Category; label: string; emoji: string }[] = [
-  { value: 'food',    label: 'Food & Dining',       emoji: '🍔' },
-  { value: 'retail',  label: 'Retail & Shopping',   emoji: '🛍️' },
-  { value: 'grocery', label: 'Grocery',             emoji: '🛒' },
-  { value: 'other',   label: 'Other',               emoji: '🎟️' },
+  { value: 'food', label: 'Food & Dining', emoji: '🍔' },
+  { value: 'retail', label: 'Retail & Shopping', emoji: '🛍️' },
+  { value: 'grocery', label: 'Grocery', emoji: '🛒' },
+  { value: 'other', label: 'Other', emoji: '🎟️' },
 ];
 
 function categoryLabel(c: Category) {
-  const hit = CATEGORY_OPTIONS.find(o => o.value === c)!;
+  const hit = CATEGORY_OPTIONS.find((o) => o.value === c)!;
   return `${hit.emoji} ${hit.label}`;
 }
 
@@ -64,23 +205,33 @@ export default function Scan() {
   const [mode, setMode] = useState<ModeType>('');
   const [locationNote, setLocationNote] = useState('');
 
-  const [publication, setPublication] = useState('');            // 👈 NEW
-  const [pubSuggestions, setPubSuggestions] = useState<string[]>([]); // 👈 NEW
+  const [publication, setPublication] = useState('');
+  const [pubSuggestions, setPubSuggestions] = useState<string[]>([]);
 
   const [fullText, setFullText] = useState('');
   const [details, setDetails] = useState<ParsedCoupon | null>(null);
 
   const [visibility, setVisibility] = useState<Visibility>('private');
   const [category, setCategory] = useState<Category>('other');
-  const [catPickerOpen, setCatPickerOpen] = useState(false); // compact dropdown modal
+  const [catPickerOpen, setCatPickerOpen] = useState(false);
 
   const pulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.08, duration: 700, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(pulse, {
+          toValue: 1.08,
+          duration: 700,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
       ])
     ).start();
   }, [pulse]);
@@ -98,10 +249,16 @@ export default function Scan() {
           .limit(50);
         if (error) return;
         const uniq = Array.from(
-          new Set((data ?? []).map(d => (d.publication ?? '').trim()).filter(Boolean))
+          new Set(
+            (data ?? [])
+              .map((d) => (d.publication ?? '').trim())
+              .filter(Boolean)
+          )
         );
         setPubSuggestions(uniq.slice(0, 20));
-      } catch {}
+      } catch {
+        // ignore
+      }
     };
     if (modalOpen) loadSuggestions();
   }, [modalOpen]);
@@ -119,9 +276,12 @@ export default function Scan() {
 
   function guessCategory(s: string, t: string): Category {
     const x = `${s} ${t}`.toLowerCase();
-    if (/(pizza|taco|grill|burger|cafe|coffee|restaurant|bar|deli|burrito|sushi)/.test(x)) return 'food';
-    if (/(kroger|aldi|meijer|whole foods|grocery|supermarket|costco|sam's club)/.test(x)) return 'grocery';
-    if (/(target|walmart|best buy|electronics|clothes|mall|boutique)/.test(x)) return 'retail';
+    if (/(pizza|taco|grill|burger|cafe|coffee|restaurant|bar|deli|burrito|sushi)/.test(x))
+      return 'food';
+    if (/(kroger|aldi|meijer|whole foods|grocery|supermarket|costco|sam's club)/.test(x))
+      return 'grocery';
+    if (/(target|walmart|best buy|electronics|clothes|mall|boutique)/.test(x))
+      return 'retail';
     return 'other';
   }
 
@@ -130,13 +290,23 @@ export default function Scan() {
       if (!cameraRef.current) return;
       setBusy(true);
 
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.9, skipProcessing: true });
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.9,
+        skipProcessing: true,
+      });
       const prepped = await prepareForOcr(photo.uri);
       const result = await runOcr(prepped);
-      const text = result.text ?? '';
+
+      const rawText = result.text ?? '';
+      const text = cleanOcrText(rawText);
+
+      console.log('🔍 OCR text (cleaned):\n', text);
 
       if (!text.trim()) {
-        Alert.alert('No text detected', 'Try again with better lighting and keep the coupon flat.');
+        Alert.alert(
+          'No text detected',
+          'Try again with better lighting and keep the coupon flat.'
+        );
         setBusy(false);
         return;
       }
@@ -145,27 +315,71 @@ export default function Scan() {
       const parsed = extractCouponFields(text, result.blocks);
 
       const layout = await extractStoreAndAddressFromBlocks(
-        (result.blocks?.map(b => ({ text: b.text, bbox: b.bbox })) ?? []),
+        result.blocks?.map((b) => ({ text: b.text, bbox: b.bbox })) ?? [],
         text,
         { tryGeocode: true, brands: KNOWN_BRANDS }
       );
 
+      console.log('layout.store:', layout.store);
+      console.log('parsed.store:', parsed.store);
+      console.log('basic.storeGuess:', basic.storeGuess);
+
       setFullText(text);
       setDetails(parsed);
 
-      const nextStore = layout.store ?? parsed.store ?? basic.storeGuess ?? '';
+      // ---- Store: layout → parsed → basic → brand match → generic fallback
+      let nextStore = layout.store ?? parsed.store ?? basic.storeGuess ?? '';
+
+      // Brand fallback (McDonalds, Starbucks, etc.)
+      if (!nextStore) {
+        const normText = normalizeName(text);
+        for (const brand of KNOWN_BRANDS) {
+          const nb = normalizeName(brand);
+          if (nb && normText.includes(nb)) {
+            nextStore = brand;
+            console.log('✅ Brand fallback hit:', brand);
+            break;
+          }
+        }
+      }
+
+      // Generic fallback from cleaned OCR lines (top heading-ish text)
+      if (!nextStore) {
+        const fb = fallbackStoreFromText(text);
+        if (fb) {
+          nextStore = fb;
+          console.log('✅ Text-line fallback hit:', fb);
+        }
+      }
+
+      // Extend e.g. "MEIJER" + "MARKET" → "Meijer Market"
+      if (nextStore) {
+        const extended = maybeExtendStoreWithNextLine(nextStore, text);
+        if (extended !== nextStore) {
+          console.log('✅ Extended store:', extended);
+          nextStore = extended;
+        }
+      }
+
+      console.log('final nextStore:', nextStore);
+
       setStore(nextStore);
       setAddress(layout.address ?? parsed.address ?? '');
       setPhone(layout.phone ?? parsed.phone ?? '');
 
-      const nextTitle =
-        basic.discount_kind
-          ? (basic.discount_kind === 'percent' ? `${basic.discount_value}% off` : `$${basic.discount_value} off`)
-          : (parsed.title ?? '');
+      const nextTitle = basic.discount_kind
+        ? basic.discount_kind === 'percent'
+          ? `${basic.discount_value}% off`
+          : `$${basic.discount_value} off`
+        : parsed.title ?? '';
       setTitle(nextTitle);
 
       setTerms((parsed.terms ?? text).slice(0, 400));
-      setExpiresAt(basic.expires_guess ?? null);
+
+      // Prefer expiry extracted by coupon-parse; fall back to basic.expires_guess
+      const expiryGuess = parsed.expires_at ?? basic.expires_guess ?? null;
+      setExpiresAt(expiryGuess);
+
       setMode((parsed.mode as ModeType) ?? '');
       setLocationNote(parsed.location_note ?? '');
 
@@ -206,7 +420,9 @@ export default function Scan() {
         try {
           const r = await Location.geocodeAsync(address);
           if (r?.length) geo = { lat: r[0].latitude, lng: r[0].longitude };
-        } catch {}
+        } catch {
+          // ignore
+        }
       }
 
       const row = await addCoupon({
@@ -217,7 +433,9 @@ export default function Scan() {
         expires_at: expiresAt ? new Date(expiresAt).toISOString() : null,
         image_url: null,
         stable_id:
-          store && title ? `${store}-${title}`.toLowerCase().replace(/[^a-z0-9]+/g, '-') : null,
+          store && title
+            ? `${store}-${title}`.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+            : null,
         attrs: {
           ocr: true,
           parser_version: 1,
@@ -230,7 +448,7 @@ export default function Scan() {
         },
         visibility,
         category,
-        publication: nn(publication), // 👈 NEW
+        publication: nn(publication),
       });
 
       const res = await registerFromSupabase(uid);
@@ -250,27 +468,42 @@ export default function Scan() {
     return (
       <View style={styles.landing}>
         <Text style={styles.title}>Scan a Coupon</Text>
-        <Text style={styles.subtitle}>Snap → Read → Save → Get nearby alerts</Text>
+        <Text style={styles.subtitle}>
+          Snap → Read → Save → Get nearby alerts
+        </Text>
 
         <Animated.View style={{ transform: [{ scale: pulse }], width: '100%' }}>
-          <TouchableOpacity onPress={openCamera} style={styles.scanCta} disabled={busy}>
-            {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.scanCtaText}>Start Scan</Text>}
+          <TouchableOpacity
+            onPress={openCamera}
+            style={styles.scanCta}
+            disabled={busy}
+          >
+            {busy ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.scanCtaText}>Start Scan</Text>
+            )}
           </TouchableOpacity>
         </Animated.View>
 
         <View style={styles.tipsBox}>
           <Text style={styles.tipsTitle}>Tips</Text>
-          <Text style={styles.tip}>Good lighting • Fill the frame • Keep flat</Text>
+          <Text style={styles.tip}>
+            Good lighting • Fill the frame • Keep flat
+          </Text>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#ffebd5', paddingTop:20 }}>
+    <View style={{ flex: 1, backgroundColor: '#ffebd5', paddingTop: 20 }}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Scan</Text>
-        <TouchableOpacity onPress={() => setShowCamera(false)} style={styles.headerClose}>
+        <TouchableOpacity
+          onPress={() => setShowCamera(false)}
+          style={styles.headerClose}
+        >
           <Text style={{ color: '#5a4636', fontWeight: '800' }}>Close</Text>
         </TouchableOpacity>
       </View>
@@ -283,23 +516,58 @@ export default function Scan() {
       </View>
 
       <View style={{ padding: 12 }}>
-        <TouchableOpacity style={styles.btnPrimary} onPress={takeAndOcr} disabled={busy}>
-          {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Scan Text</Text>}
+        <TouchableOpacity
+          style={styles.btnPrimary}
+          onPress={takeAndOcr}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.btnText}>Scan Text</Text>
+          )}
         </TouchableOpacity>
       </View>
 
-      <Modal visible={modalOpen} animationType="slide" onRequestClose={() => setModalOpen(false)}>
-        <View style={{ flex: 1, backgroundColor: '#ffebd5', padding: 10, paddingTop: 40, paddingBottom: 10 }}>
-          <Text style={{ fontSize: 20, fontWeight: '800', color: '#5a4636', marginBottom: 8 }}>
+      <Modal
+        visible={modalOpen}
+        animationType="slide"
+        onRequestClose={() => setModalOpen(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: '#ffebd5',
+            padding: 10,
+            paddingTop: 40,
+            paddingBottom: 10,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: '800',
+              color: '#5a4636',
+              marginBottom: 8,
+            }}
+          >
             Confirm details
           </Text>
 
           <ScrollView contentContainerStyle={{ paddingBottom: 24 }}>
             {/* Visibility (chips) */}
             <View style={{ marginBottom: 12 }}>
-              <Text style={{ color: '#6b5b4d', marginBottom: 6, fontWeight: '700' }}>Visibility</Text>
+              <Text
+                style={{
+                  color: '#6b5b4d',
+                  marginBottom: 6,
+                  fontWeight: '700',
+                }}
+              >
+                Visibility
+              </Text>
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                {(['private','public'] as Visibility[]).map(v => {
+                {(['private', 'public'] as Visibility[]).map((v) => {
                   const active = visibility === v;
                   return (
                     <TouchableOpacity
@@ -307,33 +575,61 @@ export default function Scan() {
                       onPress={() => setVisibility(v)}
                       style={[
                         styles.chip,
-                        { borderColor: active ? '#2563eb' : '#f2caa1', backgroundColor: active ? '#2563eb' : '#fff' }
-                      ]}>
-                      <Text style={{ color: active ? '#fff' : '#5a4636', fontWeight: '700' }}>
+                        {
+                          borderColor: active ? '#2563eb' : '#f2caa1',
+                          backgroundColor: active ? '#2563eb' : '#fff',
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: active ? '#fff' : '#5a4636',
+                          fontWeight: '700',
+                        }}
+                      >
                         {v === 'private' ? 'Private' : 'Public (Feed)'}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
-              <Text style={{ color: '#6b5b4d', marginTop: 6, fontSize: 12 }}>
-                Private → only in My List. Public → also appears in Feed; others can Save it.
+              <Text
+                style={{
+                  color: '#6b5b4d',
+                  marginTop: 6,
+                  fontSize: 12,
+                }}
+              >
+                Private → only in My List. Public → also appears in Feed; others
+                can Save it.
               </Text>
             </View>
 
             {/* Category – compact dropdown (chip that opens tiny modal) */}
             <View style={{ marginBottom: 10 }}>
-              <Text style={{ color: '#6b5b4d', marginBottom: 6, fontWeight: '700' }}>Category</Text>
+              <Text
+                style={{
+                  color: '#6b5b4d',
+                  marginBottom: 6,
+                  fontWeight: '700',
+                }}
+              >
+                Category
+              </Text>
 
               <Pressable
                 onPress={() => setCatPickerOpen(true)}
                 style={({ pressed }) => [
                   styles.dropdownTrigger,
-                  { opacity: pressed ? 0.85 : 1 }
+                  { opacity: pressed ? 0.85 : 1 },
                 ]}
               >
-                <Text style={{ color: '#5a4636', fontWeight: '700' }}>{categoryLabel(category)}</Text>
-                <Text style={{ color: '#5a4636' }}>{Platform.OS === 'ios' ? '▾' : '▼'}</Text>
+                <Text style={{ color: '#5a4636', fontWeight: '700' }}>
+                  {categoryLabel(category)}
+                </Text>
+                <Text style={{ color: '#5a4636' }}>
+                  {Platform.OS === 'ios' ? '▾' : '▼'}
+                </Text>
               </Pressable>
 
               <Modal
@@ -342,21 +638,33 @@ export default function Scan() {
                 animationType="fade"
                 onRequestClose={() => setCatPickerOpen(false)}
               >
-                <Pressable style={styles.sheetBackdrop} onPress={() => setCatPickerOpen(false)}>
+                <Pressable
+                  style={styles.sheetBackdrop}
+                  onPress={() => setCatPickerOpen(false)}
+                >
                   <View style={styles.sheet}>
-                    {CATEGORY_OPTIONS.map(opt => {
+                    {CATEGORY_OPTIONS.map((opt) => {
                       const active = opt.value === category;
                       return (
                         <TouchableOpacity
                           key={opt.value}
                           style={[
                             styles.sheetRow,
-                            active && { backgroundColor: '#f3f4f6' }
+                            active && { backgroundColor: '#f3f4f6' },
                           ]}
-                          onPress={() => { setCategory(opt.value); setCatPickerOpen(false); }}
+                          onPress={() => {
+                            setCategory(opt.value);
+                            setCatPickerOpen(false);
+                          }}
                         >
                           <Text style={{ fontSize: 16 }}>{opt.emoji}</Text>
-                          <Text style={{ marginLeft: 8, color: '#1f2937', fontWeight: active ? '800' : '500' }}>
+                          <Text
+                            style={{
+                              marginLeft: 8,
+                              color: '#1f2937',
+                              fontWeight: active ? '800' : '500',
+                            }}
+                          >
                             {opt.label}
                           </Text>
                         </TouchableOpacity>
@@ -369,21 +677,42 @@ export default function Scan() {
 
             {/* Publication */}
             <View style={{ marginBottom: 10 }}>
-              <Field label="Publication (optional)" value={publication} onChangeText={setPublication} />
+              <Field
+                label="Publication (optional)"
+                value={publication}
+                onChangeText={setPublication}
+              />
               {pubSuggestions.length > 0 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
-                  {pubSuggestions.map(p => (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginTop: 6 }}
+                >
+                  {pubSuggestions.map((p) => (
                     <TouchableOpacity
                       key={p}
                       onPress={() => setPublication(p)}
-                      style={[styles.chip, { borderColor: '#f2caa1', backgroundColor: '#fff', marginRight: 8 }]}
+                      style={[
+                        styles.chip,
+                        {
+                          borderColor: '#f2caa1',
+                          backgroundColor: '#fff',
+                          marginRight: 8,
+                        },
+                      ]}
                     >
                       <Text style={{ color: '#5a4636' }}>{p}</Text>
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
               )}
-              <Text style={{ color: '#8a7a6b', fontSize: 12, marginTop: 4 }}>
+              <Text
+                style={{
+                  color: '#8a7a6b',
+                  fontSize: 12,
+                  marginTop: 4,
+                }}
+              >
                 Examples: Entertainment, Key Card, Valpak, Independent
               </Text>
             </View>
@@ -391,17 +720,41 @@ export default function Scan() {
             <Field label="Store Name" value={store} onChangeText={setStore} />
             {/* <Field label="Title" value={title} onChangeText={setTitle} /> */}
             <Field label="Address" value={address} onChangeText={setAddress} />
-            <Field label="Phone" value={phone} onChangeText={setPhone} keyboardType="phone-pad" />
-            <Field label="Expires (YYYY-MM-DD or Jan 5, 2026)" value={expiresAt ?? ''} onChangeText={setExpiresAt} />
-            <Multiline label="Location Notes" value={terms} onChangeText={setTerms} />
+            <Field
+              label="Phone"
+              value={phone}
+              onChangeText={setPhone}
+              keyboardType="phone-pad"
+            />
+            <Field
+              label="Expires (YYYY-MM-DD or Jan 5, 2026)"
+              value={expiresAt ?? ''}
+              onChangeText={setExpiresAt}
+            />
+            <Multiline
+              label="Location Notes"
+              value={terms}
+              onChangeText={setTerms}
+            />
           </ScrollView>
 
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-            <TouchableOpacity style={[styles.btn, { backgroundColor: '#6b7280' }]} onPress={() => setModalOpen(false)}>
+            <TouchableOpacity
+              style={[styles.btn, { backgroundColor: '#6b7280' }]}
+              onPress={() => setModalOpen(false)}
+            >
               <Text style={styles.btnText}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.btnPrimary} onPress={save} disabled={busy}>
-              {busy ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Save</Text>}
+            <TouchableOpacity
+              style={styles.btnPrimary}
+              onPress={save}
+              disabled={busy}
+            >
+              {busy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnText}>Save</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -476,26 +829,88 @@ function Multiline({
 }
 
 const styles = StyleSheet.create({
-  landing: { flex: 1, backgroundColor: '#ffebd5', padding: 20, alignItems: 'center', justifyContent: 'center' },
+  landing: {
+    flex: 1,
+    backgroundColor: '#ffebd5',
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   title: { fontSize: 28, fontWeight: '900', color: '#5a4636', marginBottom: 6 },
   subtitle: { color: '#6b5b4d', marginBottom: 22 },
-  scanCta: { backgroundColor: '#2563eb', paddingVertical: 18, borderRadius: 18, alignItems: 'center' },
+  scanCta: {
+    backgroundColor: '#f55179',
+    paddingVertical: 18,
+    borderRadius: 18,
+    alignItems: 'center',
+  },
   scanCtaText: { color: '#fff', fontWeight: '800', fontSize: 18 },
-  tipsBox: { marginTop: 18, backgroundColor: '#fff', borderRadius: 14, padding: 12, borderWidth: 1, borderColor: '#f2caa1' },
+  tipsBox: {
+    marginTop: 18,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#f2caa1',
+  },
   tipsTitle: { fontWeight: '800', color: '#5a4636', marginBottom: 4 },
   tip: { color: '#6b5b4d' },
 
-  header: { paddingHorizontal: 12, paddingTop: 14, paddingBottom: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  header: {
+    paddingHorizontal: 12,
+    paddingTop: 14,
+    paddingBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   headerTitle: { fontSize: 18, fontWeight: '800', color: '#5a4636' },
-  headerClose: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999, backgroundColor: '#f6d2ad55' },
+  headerClose: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: '#f6d2ad55',
+  },
 
-  cameraWrap: { flex: 1, margin: 12, borderRadius: 16, overflow: 'hidden', borderWidth: 2, borderColor: '#f6d2ad' },
+  cameraWrap: {
+    flex: 1,
+    margin: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#f6d2ad',
+  },
 
-  overlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  frame: { width: '80%', height: '55%', borderRadius: 16, borderWidth: 3, borderColor: '#ffffffaa' },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  frame: {
+    width: '80%',
+    height: '55%',
+    borderRadius: 16,
+    borderWidth: 3,
+    borderColor: '#ffffffaa',
+  },
 
-  btn: { flex: 1, paddingVertical: 14, borderRadius: 14, alignItems: 'center' },
-  btnPrimary: { backgroundColor: '#2563eb', paddingVertical: 14, borderRadius: 14, alignItems: 'center', padding: 10 },
+  btn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  btnPrimary: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    padding: 10,
+  },
   btnText: { color: '#fff', fontWeight: '700' },
 
   chip: {
@@ -506,7 +921,6 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
 
-  // Compact dropdown trigger
   dropdownTrigger: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -520,7 +934,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
 
-  // Tiny modal sheet
   sheetBackdrop: {
     flex: 1,
     backgroundColor: '#00000055',
